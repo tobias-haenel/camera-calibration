@@ -10,6 +10,8 @@
 #include <string>
 #include <thread>
 
+#include "ThreadSafePrinter.h"
+
 using namespace cv;
 using namespace std;
 using namespace std::chrono;
@@ -27,6 +29,8 @@ ImagePointExtractor::readSettings(const FileNode &node) {
     node["Input"] >> input;
     node["FlipInputAroundHorizontalAxis"] >> m_flipHorizontal;
     node["FlipInputAroundVerticalAxis"] >> m_flipVertical;
+    node["ApplyThreshold"] >> m_applyThreshold;
+    node["ThresholdValue"] >> m_thresholdValue;
     node["StillDelay"] >> stillDelayMs;
     node["CooldownDuration"] >> cooldownDurationMs;
     node["GridWidth"] >> m_gridSize.width;
@@ -142,16 +146,18 @@ ImagePointExtractor::findImagePoints(vector<vector<Point2f>> &imagePoints,
             bool enoughUsefulFrames = imagePoints.size() >=
                 static_cast<size_t>(m_detectionsPerGridCell * m_gridSize.area());
             if (!enoughUsefulFrames) {
-                cerr << "Input did not contain enough useful images" << endl;
+                printErr << "Input did not contain enough useful images" << endl;
             }
             return enoughUsefulFrames;
         }
 
         imageSize = image.size();
-        manipulateImage(image);
+        Mat featureImage;
+        manipulateImage(image, featureImage);
+        imshow("Feature Image View", featureImage);
 
         vector<Point2f> currentImagePoints;
-        bool found = detectFeaturePoints(currentImagePoints, image, data);
+        bool found = detectFeaturePoints(currentImagePoints, featureImage, data);
         bool pointsAdded = false;
         if (found) {
             pointsAdded = addImagePoints(imagePoints, data, currentImagePoints, imageSize);
@@ -228,7 +234,8 @@ ImagePointExtractor::showUndistoredInput(const CameraCalibrationResult &result) 
 
     bool undistorted = true;
     for (Mat view = nextImage(data); !view.empty(); view = nextImage(data)) {
-        manipulateImage(view);
+        Mat featureImage;
+        manipulateImage(view, featureImage);
 
         if (undistorted) {
             Mat temp = view.clone();
@@ -338,7 +345,7 @@ ImagePointExtractor::detectFeaturePoints(vector<Point2f> &featurePoints,
         return findCirclesGrid(image, boardSize, featurePoints, CALIB_CB_ASYMMETRIC_GRID);
     }
     case ReferenceObject::PatternType::Invalid: {
-        cerr << "No valid pattern type was specified" << endl;
+        printErr << "No valid pattern type was specified" << endl;
         return false;
     }
     }
@@ -370,13 +377,20 @@ ImagePointExtractor::determineImageShape(vector<Point2i> &shape,
 }
 
 void
-ImagePointExtractor::manipulateImage(Mat &image) const {
+ImagePointExtractor::manipulateImage(Mat &image, Mat &featureImage) const {
     if (m_flipHorizontal) {
         flip(image, image, 0);
     }
 
     if (m_flipVertical) {
         flip(image, image, 1);
+    }
+
+    featureImage = image.clone();
+
+    if (m_applyThreshold) {
+        cvtColor(featureImage, featureImage, CV_RGB2GRAY);
+        threshold(featureImage, featureImage, m_thresholdValue, 255.0, CV_THRESH_BINARY);
     }
 }
 
@@ -407,7 +421,7 @@ ImagePointExtractor::validateSettings() {
     m_settingsValid = true;
 
     if (m_inputType == InputType::Invalid) {
-        cerr << "Invalid input type: unknown" << endl;
+        printErr << "Invalid input type: unknown" << endl;
         m_settingsValid = false;
     }
 
@@ -415,7 +429,7 @@ ImagePointExtractor::validateSettings() {
     case InputType::Camera: {
         VideoCapture capture;
         if (not capture.open(m_cameraId)) {
-            cerr << "Invalid input: Couldn't open camera with id " << m_cameraId << endl;
+            printErr << "Invalid input: Couldn't open camera with id " << m_cameraId << endl;
             m_settingsValid = false;
         }
         capture.release();
@@ -424,7 +438,7 @@ ImagePointExtractor::validateSettings() {
     case InputType::VideoFile: {
         VideoCapture capture;
         if (not capture.open(m_videoFile)) {
-            cerr << "Invalid input: Couldn't open video file \"" << m_videoFile << '"' << endl;
+            printErr << "Invalid input: Couldn't open video file \"" << m_videoFile << '"' << endl;
             m_settingsValid = false;
         }
         capture.release();
@@ -434,7 +448,8 @@ ImagePointExtractor::validateSettings() {
         for (string const &imageFile : m_imageFiles) {
             Mat image = imread(imageFile);
             if (image.empty()) {
-                cerr << "Invalid input: Couldn't open image file \"" << imageFile << '"' << endl;
+                printErr << "Invalid input: Couldn't open image file \"" << imageFile << '"'
+                         << endl;
                 m_settingsValid = false;
             }
         }
@@ -445,22 +460,27 @@ ImagePointExtractor::validateSettings() {
     }
 
     if (m_stillDelay < 0) {
-        cerr << "Invalid still delay" << endl;
+        printErr << "Invalid still delay" << endl;
         m_settingsValid = false;
     }
 
     if (m_cooldownDuration < 0) {
-        cerr << "Invalid cooldown duration" << endl;
+        printErr << "Invalid cooldown duration" << endl;
         m_settingsValid = false;
     }
 
     if (m_gridSize.height <= 0 or m_gridSize.width <= 0) {
-        cerr << "Invalid grid size: " << m_gridSize.width << ' ' << m_gridSize.height << endl;
+        printErr << "Invalid grid size: " << m_gridSize.width << ' ' << m_gridSize.height << endl;
         m_settingsValid = false;
     }
 
     if (m_detectionsPerGridCell <= 0) {
-        cerr << "Invalid number of images per grid" << endl;
+        printErr << "Invalid number of images per grid" << endl;
+        m_settingsValid = false;
+    }
+
+    if (m_thresholdValue < 0.0) {
+        printErr << "Invalid threshold value" << endl;
         m_settingsValid = false;
     }
 }

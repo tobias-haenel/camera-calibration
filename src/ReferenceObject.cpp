@@ -3,6 +3,8 @@
 #include <iostream>
 #include <string>
 
+#include "ThreadSafePrinter.h"
+
 using namespace cv;
 using namespace std;
 
@@ -48,7 +50,7 @@ ReferenceObject::objectPoints(std::vector<Point3f> &objectPoints) const {
     objectPoints.clear();
 
     if (not m_settingsValid) {
-        cerr << "Can't calculate object points: settings invalid" << endl;
+        printErr << "Can't calculate object points: settings invalid" << endl;
         return false;
     }
 
@@ -82,15 +84,16 @@ void
 ReferenceObject::validateSettings() {
     m_settingsValid = true;
     if (m_boardSize.width <= 0 or m_boardSize.height <= 0) {
-        cerr << "Invalid board size: " << m_boardSize.width << ", " << m_boardSize.height << endl;
+        printErr << "Invalid board size: " << m_boardSize.width << ", " << m_boardSize.height
+                 << endl;
         m_settingsValid = false;
     }
     if (m_squareSize <= 0.0f) {
-        cerr << "Invalid square size: " << m_squareSize << endl;
+        printErr << "Invalid square size: " << m_squareSize << endl;
         m_settingsValid = false;
     }
     if (m_calibrationPattern == PatternType::Invalid) {
-        cerr << "Invalid pattern type: unknown" << endl;
+        printErr << "Invalid pattern type: unknown" << endl;
         m_settingsValid = false;
     }
 }

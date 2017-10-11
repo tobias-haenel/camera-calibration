@@ -123,9 +123,10 @@ private: // methods
     /**
      * @brief Performs preprocessing of the input images according to the settings.
      * @param image Input image
+     * @param featureImage Feature image that is created from input image
      */
     void
-    manipulateImage(cv::Mat &image) const;
+    manipulateImage(cv::Mat &image, cv::Mat &featureImage) const;
 
     /**
      * @brief Gets the next image from the input.
@@ -185,6 +186,16 @@ private: // members
      * @brief Indicates if the input images should be flipped vertically before they are used
      */
     bool m_flipVertical = false;
+
+    /**
+     * @brief Indicates if the input should be thresholded after a conversion to grayscale
+     */
+    bool m_applyThreshold = false;
+
+    /**
+     * @brief Value that should be used for thresholding
+     */
+    double m_thresholdValue = 0.0;
 
     /**
      * @brief Time (in s) that is required until a still reference object is treated as not moving

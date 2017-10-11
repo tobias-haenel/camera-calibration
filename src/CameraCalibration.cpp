@@ -10,6 +10,8 @@
 #include <iostream>
 #include <thread>
 
+#include "ThreadSafePrinter.h"
+
 using namespace std;
 using namespace std::chrono;
 using namespace cv;
@@ -103,7 +105,7 @@ CameraCalibration::calculateResult(const std::vector<std::vector<Point2f>> &imag
                                  tvecs,
                                  m_flag);
 
-    cout << "Re-projection error reported by calibrateCamera: " << rms << endl;
+    printOut << "Re-projection error reported by calibrateCamera: " << rms << endl;
 
     return checkRange(result.cameraMatrix) && checkRange(result.distortionCoefficients);
 }
@@ -113,17 +115,17 @@ CameraCalibration::validateSettings() {
     m_settingsValid = true;
 
     if (not m_referenceObject.settingsValid()) {
-        cerr << "Invalid reference object" << endl;
+        printErr << "Invalid reference object" << endl;
         m_settingsValid = false;
     }
 
     if (not m_imagePointExtractor.settingsValid()) {
-        cerr << "Invalid image point extraction" << endl;
+        printErr << "Invalid image point extraction" << endl;
         m_settingsValid = false;
     }
 
     if (m_aspectRatio <= 0.0f) {
-        cerr << "Invalid aspect ratio" << endl;
+        printErr << "Invalid aspect ratio" << endl;
         m_settingsValid = false;
     }
 }
