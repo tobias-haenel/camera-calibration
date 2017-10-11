@@ -15,7 +15,7 @@ add_executable(${PROJECT_NAME} ${source_files} ${header_files})
 add_compile_options(-Wall -pedantic -ansi -std=c++11 -pthread)
 
 include_directories(include . ${OpenCV_INCLUDE_DIRS} ${OpenIGTLink_INCLUDE_DIRS})
-target_link_libraries(${PROJECT_NAME} ${OpenCV_LIBS} ${OpenIGTLink_LIBS} ${CMAKE_THREAD_LIBS_INIT})
+target_link_libraries(${PROJECT_NAME} ${OpenCV_LIBS} ${OpenIGTLink_LIBRARIES} ${CMAKE_THREAD_LIBS_INIT})
 
 message("OpenCV install path: " ${OpenCV_INSTALL_PATH})
 message("OpenIGTLink install path: " ${OpenIGTLink_INSTALL_PREFIX})
