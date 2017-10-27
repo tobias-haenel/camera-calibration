@@ -11,24 +11,15 @@
 #include <thread>
 
 #include "ThreadSafePrinter.h"
+#include "Utility.h"
 
 using namespace cv;
 using namespace std;
 using namespace std::chrono;
 
-static bool
-isImageListFile(string const &file) {
-    return file.find(".xml") == string::npos and file.find(".yaml") == string::npos and
-        file.find(".yml") == string::npos;
-}
-
 bool
 ImagePointExtractor::readSettings(const FileNode &node) {
-    string input;
     int stillDelayMs, cooldownDurationMs;
-    node["Input"] >> input;
-    node["FlipInputAroundHorizontalAxis"] >> m_flipHorizontal;
-    node["FlipInputAroundVerticalAxis"] >> m_flipVertical;
     node["ApplyThreshold"] >> m_applyThreshold;
     node["ThresholdValue"] >> m_thresholdValue;
     node["StillDelay"] >> stillDelayMs;
@@ -36,36 +27,6 @@ ImagePointExtractor::readSettings(const FileNode &node) {
     node["GridWidth"] >> m_gridSize.width;
     node["GridHeight"] >> m_gridSize.height;
     node["ImagesPerGridCell"] >> m_detectionsPerGridCell;
-
-    m_inputType = InputType::Invalid;
-    m_cameraId = -1;
-    m_videoFile.clear();
-    m_imageFiles.clear();
-    if (input[0] >= '0' and input[0] <= '9') {
-        try {
-            m_cameraId = stoi(input);
-            m_inputType = InputType::Camera;
-        } catch (...) {
-            m_cameraId = -1;
-        }
-    } else if (isImageListFile(input)) {
-        m_imageFiles.clear();
-        FileStorage fs(input, FileStorage::READ);
-        if (fs.isOpened()) {
-            FileNode node = fs.getFirstTopLevelNode();
-            if (node.type() == FileNode::SEQ) {
-                for (auto it = node.begin(); it != node.end(); ++it) {
-                    m_imageFiles.push_back(static_cast<string>(*it));
-                }
-            }
-        }
-        if (not m_imageFiles.empty()) {
-            m_inputType = InputType::ImageList;
-        }
-    } else {
-        m_videoFile = input;
-        m_inputType = InputType::VideoFile;
-    }
 
     m_stillDelay = stillDelayMs * 1e-3;
     m_cooldownDuration = cooldownDurationMs * 1e-3;
@@ -79,47 +40,11 @@ ImagePointExtractor::settingsValid() const {
     return m_settingsValid;
 }
 
-static void
-drawImageShapes(Mat &image, vector<vector<Point2i>> const &imageShapes) {
-    Mat imageOverlay = image.clone();
-    for (auto const &shape : imageShapes) {
-        fillConvexPoly(imageOverlay, shape, Scalar(255, 255, 255));
-    }
-    addWeighted(image, 0.8, imageOverlay, 0.2, 0.0, image);
-}
-
-static void
-drawImageGrid(Mat &image, std::vector<std::vector<int>> const &imageGrid, int imageCountTarget) {
-    Mat imageOverlay = image.clone();
-    for (size_t i = 0; i < imageGrid.size(); ++i) {
-        for (size_t j = 0; j < imageGrid[i].size(); ++j) {
-            int x1 = static_cast<int>(i * (image.cols * 1.0 / imageGrid.size())) + 1;
-            int x2 = static_cast<int>((i + 1) * (image.cols * 1.0 / imageGrid.size())) - 1;
-            int y1 = static_cast<int>(j * (image.rows * 1.0 / imageGrid[i].size())) + 1;
-            int y2 = static_cast<int>((j + 1) * (image.rows * 1.0 / imageGrid[i].size())) - 1;
-            Point topLeft{x1, y1};
-            Point bottomRight{x2, y2};
-            int imageCount = imageGrid[i][j];
-            double targetFrac = static_cast<double>(imageCount) / imageCountTarget;
-            Scalar color = Scalar(0, 255, 0) * targetFrac + Scalar(0, 0, 255) * (1 - targetFrac);
-            rectangle(imageOverlay, topLeft, bottomRight, color, 2);
-        }
-    }
-    addWeighted(image, 0.5, imageOverlay, 0.5, 0.0, image);
-}
-
-static void
-drawMessage(Mat &image, std::string const &message, Scalar color) {
-    int baseLine = 0;
-    Size textSize = getTextSize(message, FONT_HERSHEY_SIMPLEX, 1, 2, &baseLine);
-    Point textOrigin(image.cols - 2 * textSize.width - 10, image.rows - 2 * baseLine - 10);
-    putText(image, message, textOrigin, FONT_HERSHEY_SIMPLEX, 1, color, 2);
-}
-
 bool
 ImagePointExtractor::findImagePoints(vector<vector<Point2f>> &imagePoints,
                                      Size &imageSize,
-                                     const ReferenceObject &referenceObject) const {
+                                     const ReferenceObject &referenceObject,
+                                     CameraInput &input) const {
     Data data;
     data.referenceObject = referenceObject;
     data.imageCountGrid.resize(static_cast<size_t>(m_gridSize.width));
@@ -127,33 +52,28 @@ ImagePointExtractor::findImagePoints(vector<vector<Point2f>> &imagePoints,
         column.resize(static_cast<size_t>(m_gridSize.height), 0);
     }
 
-    if (m_inputType == InputType::Camera) {
-        data.inputCapture.open(m_cameraId);
-    } else if (m_inputType == InputType::VideoFile) {
-        data.inputCapture.open(m_videoFile);
+    if (not input.startImaging()) {
+        printErr << "Couldn't start imaging" << endl;
+        return false;
     }
 
-    data.videoThreadRunning = data.inputCapture.isOpened();
-    std::thread videoThread{&ImagePointExtractor::runVideoThread, std::ref(*this), std::ref(data)};
-    if (data.inputCapture.isOpened()) {
-        unique_lock<mutex> lock(data.videoImageMutex);
-        data.videoImageCondition.wait_for(lock, 5s);
+    shared_ptr<CameraImage> cameraImage = input.cameraImage();
+    if (not cameraImage->waitForNewImage()) {
+        printErr << "Did not receive any images" << endl;
+        return false;
     }
 
+    double imageTimeStamp = 0.0;
+    Mat image, featureImage;
     while (static_cast<int>(imagePoints.size()) < m_detectionsPerGridCell * m_gridSize.area()) {
-        Mat image = nextImage(data);
-        if (image.empty()) {
-            bool enoughUsefulFrames = imagePoints.size() >=
-                static_cast<size_t>(m_detectionsPerGridCell * m_gridSize.area());
-            if (!enoughUsefulFrames) {
-                printErr << "Input did not contain enough useful images" << endl;
-            }
-            return enoughUsefulFrames;
+        cameraImage->currentImage(image, imageTimeStamp);
+        imageSize = image.size();
+        if (imageSize.empty()) {
+            printErr << "Obtained empty image" << endl;
+            return false;
         }
 
-        imageSize = image.size();
-        Mat featureImage;
-        manipulateImage(image, featureImage);
+        determineFeatureImage(image, featureImage);
         imshow("Feature Image View", featureImage);
 
         vector<Point2f> currentImagePoints;
@@ -163,88 +83,76 @@ ImagePointExtractor::findImagePoints(vector<vector<Point2f>> &imagePoints,
             pointsAdded = addImagePoints(imagePoints, data, currentImagePoints, imageSize);
         }
 
-        if (data.inputCapture.isOpened()) {
-            if (pointsAdded) {
-                bitwise_not(image, image);
-            }
+        if (pointsAdded) {
+            bitwise_not(image, image);
+        }
 
-            drawImageShapes(image, data.imageShapes);
+        drawImageShapes(image, data.imageShapes);
 
-            drawImageGrid(image, data.imageCountGrid, m_detectionsPerGridCell);
+        drawImageGrid(image, data.imageCountGrid, m_detectionsPerGridCell);
 
-            if (found) {
-                drawChessboardCorners(
-                    image, referenceObject.boardSize(), currentImagePoints, found);
-                string message;
-                Scalar color;
-                if (data.moving) {
-                    message = "Keep still";
-                    color = Scalar(0, 0, 255); // red
-                } else if (data.gridCellFull) {
-                    message = "Enough points here";
-                    color = Scalar(0, 165, 255); // orange
-                } else if (data.cooldownActive) {
-                    message = "Cooldown active";
-                    color = Scalar(0, 255, 255); // yellow
-                } else {
-                    message = "Added";
-                    color = Scalar(0, 255, 0); // green
-                }
-                drawMessage(image, message, color);
-            }
-        } else if (found) {
+        if (found) {
             drawChessboardCorners(image, referenceObject.boardSize(), currentImagePoints, found);
+            string message;
+            Scalar color;
+            if (data.moving) {
+                message = "Keep still";
+                color = Scalar(0, 0, 255); // red
+            } else if (data.gridCellFull) {
+                message = "Enough points here";
+                color = Scalar(0, 165, 255); // orange
+            } else if (data.cooldownActive) {
+                message = "Cooldown active";
+                color = Scalar(0, 255, 255); // yellow
+            } else {
+                message = "Added";
+                color = Scalar(0, 255, 0); // green
+            }
+            drawMessage(image, message, color);
         }
 
         imshow("Image View", image);
-        waitKey(data.inputCapture.isOpened() ? (pointsAdded ? 200 : 1)
-                                             : static_cast<int>(m_cooldownDuration / 1e+3));
+        waitKey(pointsAdded ? 200 : 1);
     }
 
     destroyWindow("Image View");
-    data.videoThreadRunning = false;
-    videoThread.join();
 
-    if (data.inputCapture.isOpened()) {
-        data.inputCapture.release();
-    }
+    input.stopImaging();
 
     return true;
 }
 
 void
-ImagePointExtractor::showUndistoredInput(const CameraCalibrationResult &result) {
+ImagePointExtractor::showUndistoredInput(const IntrinsicCameraParameters &result,
+                                         CameraInput &input) {
     Data data;
-
-    if (m_inputType == InputType::Camera) {
-        data.inputCapture.open(m_cameraId);
-    } else if (m_inputType == InputType::VideoFile) {
-        data.inputCapture.open(m_videoFile);
-    }
-    if (!data.inputCapture.isOpened()) {
+    if (not input.startImaging()) {
+        printErr << "Couldn't start imaging" << endl;
         return;
     }
 
-    data.videoThreadRunning = true;
-    std::thread videoThread{&ImagePointExtractor::runVideoThread, std::ref(*this), std::ref(data)};
-    {
-        unique_lock<mutex> lock(data.videoImageMutex);
-        data.videoImageCondition.wait_for(lock, 5s);
+    shared_ptr<CameraImage> cameraImage = input.cameraImage();
+    if (not cameraImage->waitForNewImage()) {
+        printErr << "Did not receive any images" << endl;
+        return;
     }
 
     bool undistorted = true;
-    for (Mat view = nextImage(data); !view.empty(); view = nextImage(data)) {
+    Mat image;
+    double imageTimeStamp = 0.0;
+    while (true) {
+        cameraImage->currentImage(image, imageTimeStamp);
         Mat featureImage;
-        manipulateImage(view, featureImage);
+        determineFeatureImage(image, featureImage);
 
         if (undistorted) {
-            Mat temp = view.clone();
-            undistort(temp, view, result.cameraMatrix, result.distortionCoefficients);
+            Mat temp = image.clone();
+            undistort(temp, image, result.cameraMatrix, result.distortionCoefficients);
         }
 
-        drawMessage(view, undistorted ? "undistorted" : "distorted", Scalar(0, 255, 0));
+        drawMessage(image, undistorted ? "undistorted" : "distorted", Scalar(0, 255, 0));
 
-        imshow("Image View", view);
+        imshow("Image View", image);
         char key = static_cast<char>(waitKey(1));
         if (key == 'u') {
             undistorted = true;
@@ -256,12 +164,8 @@ ImagePointExtractor::showUndistoredInput(const CameraCalibrationResult &result) 
     }
 
     destroyWindow("Image View");
-    data.videoThreadRunning = false;
-    videoThread.join();
 
-    if (data.inputCapture.isOpened()) {
-        data.inputCapture.release();
-    }
+    input.stopImaging();
 }
 
 bool
@@ -302,12 +206,11 @@ ImagePointExtractor::addImagePoints(std::vector<std::vector<Point2f>> &imagePoin
         }
     }
 
-    data.isVideoStream = data.inputCapture.isOpened();
     data.cooldownActive = currentTime - data.pointsAddedTime < m_cooldownDuration;
     data.moving = movedFromReference or (currentTime - data.referenceTime < m_stillDelay);
     data.gridCellFull = data.imageCountGrid[gridColumnIdx][gridRowIdx] >= m_detectionsPerGridCell;
 
-    if (data.isVideoStream and (data.cooldownActive or data.moving or data.gridCellFull)) {
+    if (data.cooldownActive or data.moving or data.gridCellFull) {
         return false;
     }
 
@@ -341,9 +244,6 @@ ImagePointExtractor::detectFeaturePoints(vector<Point2f> &featurePoints,
     case ReferenceObject::PatternType::CirclesGrid: {
         return findCirclesGrid(image, boardSize, featurePoints);
     }
-    case ReferenceObject::PatternType::AsymmetricCirclesGrid: {
-        return findCirclesGrid(image, boardSize, featurePoints, CALIB_CB_ASYMMETRIC_GRID);
-    }
     case ReferenceObject::PatternType::Invalid: {
         printErr << "No valid pattern type was specified" << endl;
         return false;
@@ -356,36 +256,15 @@ ImagePointExtractor::determineImageShape(vector<Point2i> &shape,
                                          vector<Point2f> const &featurePoints,
                                          Data const &data) const {
     int patternColumns = data.referenceObject.boardSize().width;
-    int patternRows = data.referenceObject.boardSize().height;
-    float squareSize = data.referenceObject.squareSize();
-    ReferenceObject::PatternType patternType = data.referenceObject.calibrationPattern();
-
     shape.resize(4);
     shape[0] = featurePoints.at(0);
     shape[1] = featurePoints.at(static_cast<size_t>(patternColumns) - 1);
     shape[2] = featurePoints.at(featurePoints.size() - 1);
     shape[3] = featurePoints.at(featurePoints.size() - static_cast<size_t>(patternColumns));
-
-    if (patternType == ReferenceObject::PatternType::AsymmetricCirclesGrid) {
-        shape[1].x += squareSize;
-        if (patternRows % 2 == 1) {
-            shape[2].x += squareSize;
-        } else {
-            shape[3].x -= squareSize;
-        }
-    }
 }
 
 void
-ImagePointExtractor::manipulateImage(Mat &image, Mat &featureImage) const {
-    if (m_flipHorizontal) {
-        flip(image, image, 0);
-    }
-
-    if (m_flipVertical) {
-        flip(image, image, 1);
-    }
-
+ImagePointExtractor::determineFeatureImage(const Mat &image, Mat &featureImage) const {
     featureImage = image.clone();
 
     if (m_applyThreshold) {
@@ -394,70 +273,9 @@ ImagePointExtractor::manipulateImage(Mat &image, Mat &featureImage) const {
     }
 }
 
-Mat
-ImagePointExtractor::nextImage(ImagePointExtractor::Data &data) const {
-    Mat result;
-    if (data.inputCapture.isOpened()) {
-        lock_guard<mutex> lock{data.videoImageMutex};
-        data.videoImage.copyTo(result);
-    } else if (data.imageFileIdx < m_imageFiles.size()) {
-        result = imread(m_imageFiles[data.imageFileIdx++], IMREAD_COLOR);
-    }
-    return result;
-}
-
 void
-ImagePointExtractor::runVideoThread(ImagePointExtractor::Data &data) const {
-    while (data.videoThreadRunning and data.inputCapture.isOpened()) {
-        data.inputCapture.grab();
-        lock_guard<mutex> lock{data.videoImageMutex};
-        data.inputCapture.retrieve(data.videoImage);
-        data.videoImageCondition.notify_one();
-    }
-}
-
-bool
 ImagePointExtractor::validateSettings() {
     m_settingsValid = true;
-
-    if (m_inputType == InputType::Invalid) {
-        printErr << "Invalid input type: unknown" << endl;
-        m_settingsValid = false;
-    }
-
-    switch (m_inputType) {
-    case InputType::Camera: {
-        VideoCapture capture;
-        if (not capture.open(m_cameraId)) {
-            printErr << "Invalid input: Couldn't open camera with id " << m_cameraId << endl;
-            m_settingsValid = false;
-        }
-        capture.release();
-        break;
-    }
-    case InputType::VideoFile: {
-        VideoCapture capture;
-        if (not capture.open(m_videoFile)) {
-            printErr << "Invalid input: Couldn't open video file \"" << m_videoFile << '"' << endl;
-            m_settingsValid = false;
-        }
-        capture.release();
-        break;
-    }
-    case InputType::ImageList: {
-        for (string const &imageFile : m_imageFiles) {
-            Mat image = imread(imageFile);
-            if (image.empty()) {
-                printErr << "Invalid input: Couldn't open image file \"" << imageFile << '"'
-                         << endl;
-                m_settingsValid = false;
-            }
-        }
-        break;
-    }
-    default:
-        break;
-    }
 
     if (m_stillDelay < 0) {
         printErr << "Invalid still delay" << endl;

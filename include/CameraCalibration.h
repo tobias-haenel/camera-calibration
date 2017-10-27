@@ -6,8 +6,8 @@
 #include <condition_variable>
 #include <mutex>
 
-#include "CameraCalibrationResult.h"
 #include "ImagePointExtractor.h"
+#include "IntrinsicCameraParameters.h"
 #include "ReferenceObject.h"
 
 /**
@@ -34,21 +34,26 @@ public:
     /**
      * @brief Performs the camera calibration.
      * @param result Result of the camera calibration
+     * @param input CameraInput that is used to obtain images
+     * @param referenceObject Reference object
      * @return boolean indicating success
      */
     bool
-    calibrate(CameraCalibrationResult &result);
+    calibrate(IntrinsicCameraParameters &result,
+              CameraInput &input,
+              ReferenceObject const &referenceObject);
 
     /**
      * @brief Shows the input in an undistorted way based on the calibration result
      * @param result Result of the camera calibration
+     * @param input CameraInput that is used to obtain images
      */
     void
-    showUndistortedInput(CameraCalibrationResult const &result);
+    showUndistortedInput(IntrinsicCameraParameters const &result, CameraInput &input);
 
 private: // methods
     /**
-     * @brief Calculates the camera calibration result based on known poin correspondences between
+     * @brief Calculates the camera calibration result based on known point correspondences between
      * image space and reference object space.
      * @param imagePoints Image points, each point set should correspond to one image
      * @param objectPoints Reference object points, each point set should correspond to one image
@@ -60,7 +65,7 @@ private: // methods
     calculateResult(std::vector<std::vector<cv::Point2f>> const &imagePoints,
                     std::vector<std::vector<cv::Point3f>> const &objectPoints,
                     const cv::Size &imageSize,
-                    CameraCalibrationResult &result);
+                    IntrinsicCameraParameters &result);
 
     /**
      * @brief Checks if the read settings are valid and updates settingsValid() accordingly.
@@ -70,14 +75,9 @@ private: // methods
 
 private: // members
     /**
-     * @brief Indicates if the settings of this ReferenceObject are valid
+     * @brief Indicates if the settings are valid
      */
     bool m_settingsValid = false;
-
-    /**
-     * @brief Reference object that is used for calibration
-     */
-    ReferenceObject m_referenceObject;
 
     /**
      * @brief Extraction method that is used to obtain the points in image space from the input
@@ -134,7 +134,7 @@ private: // members
     /**
      * @brief Settings flag that is passed to the OpenCV function that calculates the result
      */
-    int m_flag = false;
+    int m_flag = 0;
 };
 
 /**

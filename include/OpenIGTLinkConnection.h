@@ -19,69 +19,69 @@ public:
     bool
     open();
 
-    void
+    bool
     getBind(std::set<std::pair<std::string, std::string>> messageRequests,
             std::string const &device = std::string());
 
-    void
+    bool
     getCapability(std::string const &device = std::string());
 
-    void
+    bool
     getColorTable(std::string const &device = std::string());
 
-    void
+    bool
     getImage(std::string const &device = std::string());
 
-    void
+    bool
     getImageMeta(std::string const &device = std::string());
 
-    void
+    bool
     getLabelMeta(std::string const &device = std::string());
 
-    void
+    bool
     getPoint(std::string const &device = std::string());
 
-    void
+    bool
     getPolyData(std::string const &device = std::string());
 
-    void
+    bool
     getStatus(std::string const &device = std::string());
 
-    void
+    bool
     getTrajectory(std::string const &device = std::string());
 
-    void
+    bool
     getTransform(std::string const &device = std::string());
 
-    void
+    bool
     startRequestingBind(std::set<std::pair<std::string, std::string>> messageRequests,
                         double resolution,
                         std::string const &device = std::string());
 
-    void
+    bool
     stopRequestingBind(std::string const &device = std::string());
 
-    void
+    bool
     startRequestingQuaternionTrackingData(int resolution,
                                           std::string const &coordinateSystem = std::string(),
                                           std::string const &device = std::string());
 
-    void
+    bool
     stopRequestingQuaternionTrackingData(std::string const &device = std::string());
 
-    void
+    bool
     startRequestingTrackingData(int resolution,
                                 std::string const &coordinateSystem = std::string(),
                                 std::string const &device = std::string());
 
-    void
+    bool
     stopRequestingTrackingData(std::string const &device = std::string());
 
     void
     close();
 
 private:
-    void
+    bool
     sendMessage(igtl::MessageBase::Pointer message, std::string const &device = std::string());
 
     void

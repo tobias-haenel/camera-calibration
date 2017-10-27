@@ -7,8 +7,9 @@
 #include <mutex>
 #include <vector>
 
-#include "CameraCalibrationResult.h"
+#include "IntrinsicCameraParameters.h"
 #include "ReferenceObject.h"
+#include "CameraInput.h"
 
 /**
  * @brief The ImagePointExtractor class can find image points on a reference object that are need
@@ -16,16 +17,6 @@
  */
 class ImagePointExtractor {
 public:
-    /**
-     * @brief The InputType enum describes possible types of input
-     */
-    enum class InputType {
-        Invalid,
-        Camera,
-        VideoFile,
-        ImageList,
-    };
-
     /**
      * @brief Reads settings from an OpenCV FileNode.
      * @param node OpenCV FileNode
@@ -47,15 +38,17 @@ public:
      * input image
      * @param imageSize Size (width and height) of all images
      * @param referenceObject Reference Object that should be detected
+     * @param input CameraInput that is used to obtain images
      * @return boolean indicating success
      */
     bool
     findImagePoints(std::vector<std::vector<cv::Point2f>> &imagePoints,
                     cv::Size &imageSize,
-                    ReferenceObject const &referenceObject) const;
+                    ReferenceObject const &referenceObject,
+                    CameraInput &input) const;
 
     void
-    showUndistoredInput(CameraCalibrationResult const &result);
+    showUndistoredInput(IntrinsicCameraParameters const &result, CameraInput &input);
 
 private: // methods
     /**
@@ -63,17 +56,10 @@ private: // methods
      */
     struct Data {
         ReferenceObject referenceObject;
-        size_t imageFileIdx = 0;
-        cv::VideoCapture inputCapture;
-        bool videoThreadRunning = false;
-        cv::Mat videoImage;
-        std::mutex videoImageMutex;
-        std::condition_variable videoImageCondition;
         std::vector<std::vector<int>> imageCountGrid;
         std::vector<std::vector<cv::Point2i>> imageShapes;
         std::vector<cv::Point2i> referenceShape;
         double referenceTime = 0.0;
-        bool isVideoStream = false;
         bool cooldownActive = false;
         bool moving = false;
         bool gridCellFull = false;
@@ -126,28 +112,12 @@ private: // methods
      * @param featureImage Feature image that is created from input image
      */
     void
-    manipulateImage(cv::Mat &image, cv::Mat &featureImage) const;
-
-    /**
-     * @brief Gets the next image from the input.
-     * @param data Runtime data
-     * @return Mat containing the image data, empty if no more input is found
-     */
-    cv::Mat
-    nextImage(Data &data) const;
-
-    /**
-     * @brief Runs a loop that continously updates the input from a video or camera.
-     * @note Should be called from another thread.
-     * @param data Runtime data
-     */
-    void
-    runVideoThread(Data &data) const;
+    determineFeatureImage(cv::Mat const &image, cv::Mat &featureImage) const;
 
     /**
      * @brief Checks if the read settings are valid and updates settingsValid() accordingly.
      */
-    bool
+    void
     validateSettings();
 
 private: // members
@@ -155,37 +125,6 @@ private: // members
      * @brief Indicates if the settings of this ReferenceObject are valid
      */
     bool m_settingsValid = false;
-
-    /**
-     * @brief Type of input that is used to extract the image points.
-     */
-    InputType m_inputType;
-
-    /**
-     * @brief Id of the camera that is used as an input, -1 if no camera is used
-     */
-    int m_cameraId = -1;
-
-    /**
-     * @brief Path/URL to a video file that is used as an input, empty if no video is used
-     */
-    std::string m_videoFile;
-
-    /**
-     * @brief List of paths to image files that are used as an input, empty if no image files are
-     * used
-     */
-    std::vector<std::string> m_imageFiles;
-
-    /**
-     * @brief Indicates if the input images should be flipped horizontally before they are used
-     */
-    bool m_flipHorizontal = false;
-
-    /**
-     * @brief Indicates if the input images should be flipped vertically before they are used
-     */
-    bool m_flipVertical = false;
 
     /**
      * @brief Indicates if the input should be thresholded after a conversion to grayscale

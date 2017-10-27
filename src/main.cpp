@@ -1,6 +1,8 @@
 ﻿#include <iostream>
 
 #include "CameraCalibration.h"
+#include "CameraInput.h"
+#include "TransformationDetermination.h"
 
 #include "ThreadSafePrinter.h"
 
@@ -10,47 +12,58 @@ using namespace std;
 int
 main(int argc, char *argv[]) {
     // Read settings file
+    CameraInput input;
+    ReferenceObject referenceObject;
     CameraCalibration calib;
+    TransformationDetermination transDeterm;
     bool showUndistorted;
+
     const string inputSettingsFile = argc > 1 ? argv[1] : "settings.xml";
     {
         FileStorage fs{inputSettingsFile, FileStorage::READ}; // Read the settings
-        if (!fs.isOpened()) {
+        if (not fs.isOpened()) {
             printOut << "Could not open the configuration file: \"" << inputSettingsFile << "\""
                      << endl;
             return -1;
         }
 
+        bool settingsOk = true;
+        fs["CameraInput"] >> input;
+        settingsOk &= input.settingsValid();
+        fs["ReferenceObject"] >> referenceObject;
+        settingsOk &= referenceObject.settingsValid();
         fs["CameraCalibration"] >> calib;
-        if (!calib.settingsValid()) {
-            printOut << "Invalid input detected. Application stopping." << endl;
+        settingsOk &= calib.settingsValid();
+        fs["ShowUndistorted"] >> showUndistorted;
+        fs["TransformationDetermination"] >> transDeterm;
+        settingsOk &= transDeterm.settingsValid();
+
+        if (not settingsOk) {
+            printOut << "Invalid settings input detected. Application stopping." << endl;
             return -1;
         }
-
-        fs["ShowUndistorted"] >> showUndistorted;
     }
 
     // perform camera calibration
-    CameraCalibrationResult calibResult;
-    if (!calib.calibrate(calibResult)) {
+    IntrinsicCameraParameters intrinsicParameters;
+    if (not calib.calibrate(intrinsicParameters, input, referenceObject)) {
         printOut << "Camera calibration did not succed. Application stopping." << endl;
         return -1;
     }
 
     // optional: show undistorted images
     if (showUndistorted) {
-        calib.showUndistortedInput(calibResult);
+        calib.showUndistortedInput(intrinsicParameters, input);
     }
 
-    // perform pose estimation
-    // get image
-    // get 3D world positions from NN
-    // find features
-    // start calculation
-
-    // extract extrinsic parameters
-
-    // calculate transformation from reference adapter to camera sensor
+    // deterime transformation from reference adapter to camera
+    Mat conversionTransformation;
+    if (not transDeterm.determineConversionTransformation(
+            intrinsicParameters, referenceObject, input, conversionTransformation)) {
+        printOut << "Couldn't determine the conversion transformation. Application stopping."
+                 << endl;
+        return -1;
+    }
 
     // store intrinsic parameters, tracking transformation and algorithm statistics
     const string outputFile = argc > 2 ? argv[2] : "result.xml";
@@ -61,7 +74,8 @@ main(int argc, char *argv[]) {
             return -1;
         }
 
-        fs << "CameraCalibrationResult" << calibResult;
+        fs << "IntrinsicCameraParameters" << intrinsicParameters;
+        fs << "ConversionTransformation" << conversionTransformation;
     }
     return 0;
 }

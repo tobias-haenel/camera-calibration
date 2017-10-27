@@ -18,7 +18,6 @@ using namespace cv;
 
 bool
 CameraCalibration::readSettings(const FileNode &node) {
-    node["ReferenceObject"] >> m_referenceObject;
     node["ImagePointExtraction"] >> m_imagePointExtractor;
     node["AspectRatio"] >> m_aspectRatio;
     node["AssumeZeroTangentialDistortion"] >> m_calibZeroTangentDist;
@@ -60,35 +59,35 @@ CameraCalibration::settingsValid() const {
 }
 
 bool
-CameraCalibration::calibrate(CameraCalibrationResult &result) {
+CameraCalibration::calibrate(IntrinsicCameraParameters &result,
+                             CameraInput &input,
+                             ReferenceObject const &referenceObject) {
     vector<vector<Point2f>> imagePoints;
     vector<Point3f> objectPointsOnce;
     vector<vector<Point3f>> objectPoints;
     Size imageSize;
 
-    if (not m_imagePointExtractor.findImagePoints(imagePoints, imageSize, m_referenceObject)) {
+    if (not m_imagePointExtractor.findImagePoints(imagePoints, imageSize, referenceObject, input)) {
         return false;
     }
 
-    if (not m_referenceObject.objectPoints(objectPointsOnce)) {
-        return false;
-    } else {
-        objectPoints.resize(imagePoints.size(), objectPointsOnce);
-    }
+    referenceObject.objectPoints(objectPointsOnce);
+    objectPoints.resize(imagePoints.size(), objectPointsOnce);
 
     return calculateResult(imagePoints, objectPoints, imageSize, result);
 }
 
 void
-CameraCalibration::showUndistortedInput(const CameraCalibrationResult &result) {
-    m_imagePointExtractor.showUndistoredInput(result);
+CameraCalibration::showUndistortedInput(const IntrinsicCameraParameters &result,
+                                        CameraInput &input) {
+    m_imagePointExtractor.showUndistoredInput(result, input);
 }
 
 bool
 CameraCalibration::calculateResult(const std::vector<std::vector<Point2f>> &imagePoints,
                                    const std::vector<std::vector<Point3f>> &objectPoints,
                                    const Size &imageSize,
-                                   CameraCalibrationResult &result) {
+                                   IntrinsicCameraParameters &result) {
     result.cameraMatrix = Mat::eye(3, 3, CV_64F);
     if (m_flag & CALIB_FIX_ASPECT_RATIO)
         result.cameraMatrix.at<double>(0, 0) = static_cast<double>(m_aspectRatio);
@@ -114,13 +113,8 @@ void
 CameraCalibration::validateSettings() {
     m_settingsValid = true;
 
-    if (not m_referenceObject.settingsValid()) {
-        printErr << "Invalid reference object" << endl;
-        m_settingsValid = false;
-    }
-
     if (not m_imagePointExtractor.settingsValid()) {
-        printErr << "Invalid image point extraction" << endl;
+        printErr << "Invalid image point extraction method" << endl;
         m_settingsValid = false;
     }
 

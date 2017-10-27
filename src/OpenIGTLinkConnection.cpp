@@ -52,7 +52,7 @@ OpenIGTLinkConnection::open() {
     return true;
 }
 
-void
+bool
 OpenIGTLinkConnection::getBind(set<pair<string, string>> messageRequests, const string &device) {
     MessageBase::Pointer message;
     auto getNindMessage = GetBindMessage::New();
@@ -62,80 +62,80 @@ OpenIGTLinkConnection::getBind(set<pair<string, string>> messageRequests, const 
         getNindMessage->AppendChildMessage(messageType.c_str(), device.c_str());
     }
     message = getNindMessage;
-    sendMessage(message, device);
+    return sendMessage(message, device);
 }
 
-void
+bool
 OpenIGTLinkConnection::getCapability(const string &device) {
     MessageBase::Pointer message;
     message = GetCapabilityMessage::New();
-    sendMessage(message, device);
+    return sendMessage(message, device);
 }
 
-void
+bool
 OpenIGTLinkConnection::getColorTable(const string &device) {
     MessageBase::Pointer message;
     message = GetColorTableMessage::New();
-    sendMessage(message, device);
+    return sendMessage(message, device);
 }
 
-void
+bool
 OpenIGTLinkConnection::getImage(const string &device) {
     MessageBase::Pointer message;
     message = GetImageMessage::New();
-    sendMessage(message, device);
+    return sendMessage(message, device);
 }
 
-void
+bool
 OpenIGTLinkConnection::getImageMeta(const string &device) {
     MessageBase::Pointer message;
     message = GetImageMetaMessage::New();
-    sendMessage(message, device);
+    return sendMessage(message, device);
 }
 
-void
+bool
 OpenIGTLinkConnection::getLabelMeta(const string &device) {
     MessageBase::Pointer message;
     message = GetLabelMetaMessage::New();
-    sendMessage(message, device);
+    return sendMessage(message, device);
 }
 
-void
+bool
 OpenIGTLinkConnection::getPoint(const string &device) {
     MessageBase::Pointer message;
     message = GetPointMessage::New();
-    sendMessage(message, device);
+    return sendMessage(message, device);
 }
 
-void
+bool
 OpenIGTLinkConnection::getPolyData(const string &device) {
     MessageBase::Pointer message;
     message = GetPolyDataMessage::New();
-    sendMessage(message, device);
+    return sendMessage(message, device);
 }
 
-void
+bool
 OpenIGTLinkConnection::getStatus(const string &device) {
     MessageBase::Pointer message;
     message = GetStatusMessage::New();
-    sendMessage(message, device);
+    return sendMessage(message, device);
 }
 
-void
+bool
 OpenIGTLinkConnection::getTrajectory(const string &device) {
     MessageBase::Pointer message;
     message = GetTrajectoryMessage::New();
-    sendMessage(message, device);
+    return sendMessage(message, device);
 }
 
-void
+bool
 OpenIGTLinkConnection::getTransform(const string &device) {
     MessageBase::Pointer message;
     message = GetTransformMessage::New();
-    sendMessage(message, device);
+    return sendMessage(message, device);
 }
 
-void
+bool
 OpenIGTLinkConnection::startRequestingBind(std::set<std::pair<string, string>> messageRequests,
                                            double resolution,
                                            const string &device) {
@@ -150,17 +150,17 @@ OpenIGTLinkConnection::startRequestingBind(std::set<std::pair<string, string>> m
     resolutionTimeStamp->SetTime(resolution);
     startBindMessage->SetResolution(resolutionTimeStamp->GetTimeStampUint64());
     message = startBindMessage;
-    sendMessage(message, device);
+    return sendMessage(message, device);
 }
 
-void
+bool
 OpenIGTLinkConnection::stopRequestingBind(const string &device) {
     MessageBase::Pointer message;
     message = StopBindMessage::New();
-    sendMessage(message, device);
+    return sendMessage(message, device);
 }
 
-void
+bool
 OpenIGTLinkConnection::startRequestingQuaternionTrackingData(int resolution,
                                                              const string &coordinateSystem,
                                                              const string &device) {
@@ -170,17 +170,17 @@ OpenIGTLinkConnection::startRequestingQuaternionTrackingData(int resolution,
     quaternionTrackingDataMessage->SetResolution(resolution);
     quaternionTrackingDataMessage->SetCoordinateName(coordinateSystem.c_str());
     message = quaternionTrackingDataMessage;
-    sendMessage(message, device);
+    return sendMessage(message, device);
 }
 
-void
+bool
 OpenIGTLinkConnection::stopRequestingQuaternionTrackingData(const string &device) {
     MessageBase::Pointer message;
     message = StopQuaternionTrackingDataMessage::New();
-    sendMessage(message, device);
+    return sendMessage(message, device);
 }
 
-void
+bool
 OpenIGTLinkConnection::startRequestingTrackingData(int resolution,
                                                    const string &coordinateSystem,
                                                    const string &device) {
@@ -189,14 +189,14 @@ OpenIGTLinkConnection::startRequestingTrackingData(int resolution,
     trackingDataMessage->SetResolution(resolution);
     trackingDataMessage->SetCoordinateName(coordinateSystem.c_str());
     message = trackingDataMessage;
-    sendMessage(message, device);
+    return sendMessage(message, device);
 }
 
-void
+bool
 OpenIGTLinkConnection::stopRequestingTrackingData(const string &device) {
     MessageBase::Pointer message;
     message = StopTrackingDataMessage::New();
-    sendMessage(message, device);
+    return sendMessage(message, device);
 }
 
 void
@@ -204,7 +204,7 @@ OpenIGTLinkConnection::close() {
     stopReceiveMessageThread(); // triggers connection close at end
 }
 
-void
+bool
 OpenIGTLinkConnection::sendMessage(MessageBase::Pointer message, const string &device) {
     std::string task = std::string("Sending message '") + message->GetDeviceType() + "' ... ";
     if (not device.empty()) {
@@ -213,8 +213,10 @@ OpenIGTLinkConnection::sendMessage(MessageBase::Pointer message, const string &d
     message->Pack();
     if (m_sessionManager->PushMessage(message) == 1) {
         printOut << task << "success" << std::endl;
+        return true;
     } else {
         printOut << task << "error" << std::endl;
+        return false;
     }
 }
 

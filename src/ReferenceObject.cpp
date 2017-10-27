@@ -14,14 +14,12 @@ ReferenceObject::readSettings(const FileNode &node) {
     node["BoardSizeWidth"] >> m_boardSize.width;
     node["BoardSizeHeight"] >> m_boardSize.height;
     node["CalibrationPattern"] >> patternToUse;
-    node["SquareSize"] >> m_squareSize;
+    node["SquareSize"] >> m_spacing;
 
     if (patternToUse == "Chessboard") {
         m_calibrationPattern = PatternType::Chessboard;
     } else if (patternToUse == "CirclesGrid") {
         m_calibrationPattern = PatternType::CirclesGrid;
-    } else if (patternToUse == "AsymmetricCirclesGrid") {
-        m_calibrationPattern = PatternType::AsymmetricCirclesGrid;
     } else {
         m_calibrationPattern = PatternType::Invalid;
     }
@@ -45,39 +43,51 @@ ReferenceObject::calibrationPattern() const {
     return m_calibrationPattern;
 }
 
-bool
+void
 ReferenceObject::objectPoints(std::vector<Point3f> &objectPoints) const {
+    objectPointsOnPlane({0, 0, 0}, {m_spacing, 0, 0}, {0, m_spacing, 0}, objectPoints);
+}
+
+bool
+ReferenceObject::objectPointsOnPlane(const Vec3f &origin,
+                                     const Vec3f &xVector,
+                                     const Vec3f &yVector,
+                                     std::vector<Point3f> &objectPoints) const {
     objectPoints.clear();
 
-    if (not m_settingsValid) {
-        printErr << "Can't calculate object points: settings invalid" << endl;
+    float xLength = static_cast<float>(norm(xVector));
+    if (fabs(1.0f - xLength / m_spacing) >= 0.1f) {
+        printErr << "Length of x vector deviated more than 10% from specified length" << endl;
+        return false;
+    }
+
+    float yLength = static_cast<float>(norm(yVector));
+    if (fabs(1.0f - yLength / m_spacing) >= 0.1f) {
+        printErr << "Length of y vector deviated more than 10% from specified length" << endl;
         return false;
     }
 
     switch (m_calibrationPattern) {
+    case PatternType::Invalid:
+        break;
     case PatternType::Chessboard:
     case PatternType::CirclesGrid: {
-        for (int i = 0; i < m_boardSize.height; ++i)
-            for (int j = 0; j < m_boardSize.width; ++j)
-                objectPoints.push_back(Point3f(j * m_squareSize, i * m_squareSize, 0));
+        for (int i = 0; i < m_boardSize.height; ++i) {
+            for (int j = 0; j < m_boardSize.width; ++j) {
+                Point3f objectPoint = origin + j * xVector + i * yVector;
+                objectPoints.push_back(objectPoint);
+            }
+        }
         break;
     }
-    case PatternType::AsymmetricCirclesGrid: {
-        for (int i = 0; i < m_boardSize.height; i++)
-            for (int j = 0; j < m_boardSize.width; j++)
-                objectPoints.push_back(
-                    Point3f((2 * j + i % 2) * m_squareSize, i * m_squareSize, 0));
-        break;
     }
-    default:
-        break;
-    }
+
     return true;
 }
 
 float
-ReferenceObject::squareSize() const {
-    return m_squareSize;
+ReferenceObject::spacing() const {
+    return m_spacing;
 }
 
 void
@@ -88,8 +98,8 @@ ReferenceObject::validateSettings() {
                  << endl;
         m_settingsValid = false;
     }
-    if (m_squareSize <= 0.0f) {
-        printErr << "Invalid square size: " << m_squareSize << endl;
+    if (m_spacing <= 0.0f) {
+        printErr << "Invalid square size: " << m_spacing << endl;
         m_settingsValid = false;
     }
     if (m_calibrationPattern == PatternType::Invalid) {

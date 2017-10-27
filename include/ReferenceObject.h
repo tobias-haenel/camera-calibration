@@ -15,7 +15,6 @@ public:
         Invalid,
         Chessboard,
         CirclesGrid,
-        AsymmetricCirclesGrid,
     };
 
     /**
@@ -50,10 +49,23 @@ public:
     /**
      * @brief Gets the points of the object in the object space.
      * @param objectPoints ObjectPoints that are calculated
-     * @return boolean indicating success
+     */
+    void
+    objectPoints(std::vector<cv::Point3f> &objectPoints) const;
+
+    /**
+     * @brief Gets the points of the object in the object space based on a given basis.
+     * @param origin Origin position ("top left")
+     * @param widthVector First basis vector ("width" axis)
+     * @param heightVector Second basis vector ("height" axis)
+     * @param objectPoints ObjectPoints that are calculated
+     * @return boolean indicating if the length of the vectors matched the pattern spacing()
      */
     bool
-    objectPoints(std::vector<cv::Point3f> &objectPoints) const;
+    objectPointsOnPlane(cv::Vec3f const &origin,
+                        cv::Vec3f const &xVector,
+                        cv::Vec3f const &yVector,
+                        std::vector<cv::Point3f> &objectPoints) const;
 
     /**
      * @brief Gets the distance from one pattern point on the reference object to its neighbours.
@@ -62,7 +74,7 @@ public:
      * @return floating point value measured in a user defined unit
      */
     float
-    squareSize() const;
+    spacing() const;
 
 private: // methods
     /**
@@ -89,10 +101,8 @@ private: // members
 
     /**
      * @brief Distance from one pattern point on the reference object to its neighbours
-     * @note If boardSize() is PatternType::AsymetricCirclesGrid, this is half the distance to row
-     * neighbours
      */
-    float m_squareSize = 0.0;
+    float m_spacing = 0.0;
 };
 
 /**
