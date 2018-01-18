@@ -67,11 +67,25 @@ CameraCalibration::calibrate(IntrinsicCameraParameters &result,
     vector<vector<Point3f>> objectPoints;
     Size imageSize;
 
-    if (not m_imagePointExtractor.findImagePoints(imagePoints, imageSize, referenceObject, input)) {
+    if (not m_imagePointExtractor.findImagePoints(
+            imagePoints, imageSize, result.focusValue, referenceObject, input)) {
         return false;
     }
 
     referenceObject.objectPoints(objectPointsOnce);
+    {
+        size_t i = 0;
+        ThreadSafePrinter print {cout};
+        print << "Calculated object points: " << endl;
+        for (int y = 0; y < referenceObject.boardSize().height; ++y) {
+            print << "  ";
+            for (int x = 0; x < referenceObject.boardSize().width; ++x, ++i) {
+                Point3f p = objectPointsOnce.at(i);
+                print << (x != 0 ? " " : "") << '(' << p.x << ", " << p.y << ", " << p.z << ')';
+            }
+            print << endl;
+        }
+    }
     objectPoints.resize(imagePoints.size(), objectPointsOnce);
 
     return calculateResult(imagePoints, objectPoints, imageSize, result);
@@ -88,25 +102,65 @@ CameraCalibration::calculateResult(const std::vector<std::vector<Point2f>> &imag
                                    const std::vector<std::vector<Point3f>> &objectPoints,
                                    const Size &imageSize,
                                    IntrinsicCameraParameters &result) {
+    double sensorWidth = 16; // mm
+    double sensorHeight = 12; // mm
+    double focalLength = 60; //m
+
     result.cameraMatrix = Mat::eye(3, 3, CV_64F);
     if (m_flag & CALIB_FIX_ASPECT_RATIO)
         result.cameraMatrix.at<double>(0, 0) = static_cast<double>(m_aspectRatio);
+
+    // use intrinsic guess for camera matrix
+    result.cameraMatrix.at<double>(0, 0) = focalLength * imageSize.width / sensorWidth;
+    result.cameraMatrix.at<double>(1, 1) = focalLength * imageSize.height / sensorHeight;
+    result.cameraMatrix.at<double>(0, 2) = imageSize.width * 0.5;
+    result.cameraMatrix.at<double>(1, 2) = imageSize.height * 0.5;
+
     result.distortionCoefficients = Mat::zeros(8, 1, CV_64F);
 
-    vector<Mat> rvecs, tvecs;
+    result.standardDeviationIntrinsics = Mat::zeros(18, 1, CV_64F);
+
+    result.perViewErrors = Mat::zeros(static_cast<int>(imagePoints.size()), 1, CV_64F);
 
     double rms = calibrateCamera(objectPoints,
                                  imagePoints,
                                  imageSize,
                                  result.cameraMatrix,
                                  result.distortionCoefficients,
-                                 rvecs,
-                                 tvecs,
-                                 m_flag);
+                                 noArray(),
+                                 noArray(),
+                                 result.standardDeviationIntrinsics,
+                                 noArray(),
+                                 result.perViewErrors,
+                                 m_flag | CALIB_USE_INTRINSIC_GUESS);
+
+    bool ok = checkRange(result.cameraMatrix) && checkRange(result.distortionCoefficients);
+    if (not ok) {
+        return false;
+    }
 
     printOut << "Re-projection error reported by calibrateCamera: " << rms << endl;
 
-    return checkRange(result.cameraMatrix) && checkRange(result.distortionCoefficients);
+    double fovx, fovy, aspectRatio;
+    Point2d principalPoint;
+
+    calibrationMatrixValues(result.cameraMatrix,
+                            imageSize,
+                            sensorWidth,
+                            sensorHeight,
+                            fovx,
+                            fovy,
+                            focalLength,
+                            principalPoint,
+                            aspectRatio);
+
+    printOut << "Horizontal FOV: " << fovx << endl <<\
+                "Vertical FOV: " << fovy << endl <<\
+                "Focal length: " << focalLength << endl <<\
+                "Aspect Ratio: " << aspectRatio << endl <<\
+                "Prinicpial Point: " << principalPoint << endl;
+
+    return true;
 }
 
 void

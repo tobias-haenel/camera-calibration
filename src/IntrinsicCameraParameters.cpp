@@ -5,9 +5,12 @@ using namespace std;
 
 void
 write(FileStorage &fs, const string &, const IntrinsicCameraParameters &intrinsicCameraParameters) {
-    fs << "{"                                                                          //
-       << "Camera_Matrix" << intrinsicCameraParameters.cameraMatrix                      //
-       << "Distortion_Coeffiecients" << intrinsicCameraParameters.distortionCoefficients //
+    fs << "{"                                                                                    //
+       << "CameraMatrix" << intrinsicCameraParameters.cameraMatrix                               //
+       << "DistortionCoeffiecients" << intrinsicCameraParameters.distortionCoefficients          //
+       << "StandardDeviationIntrinsics" << intrinsicCameraParameters.standardDeviationIntrinsics //
+       << "PerViewErros" << intrinsicCameraParameters.perViewErrors                              //
+       << "FocusValue" << intrinsicCameraParameters.focusValue                                   //
        << "}";
 }
 
@@ -20,6 +23,9 @@ read(const FileNode &node,
         return;
     }
 
-    node["Camera_Matrix"] >> intrinsicCameraParameters.cameraMatrix;
-    node["Distortion_Coefficients"] >> intrinsicCameraParameters.distortionCoefficients;
+    node["CameraMatrix"] >> intrinsicCameraParameters.cameraMatrix;
+    node["DistortionCoefficients"] >> intrinsicCameraParameters.distortionCoefficients;
+    node["StandardDeviationIntrinsics"] >> intrinsicCameraParameters.standardDeviationIntrinsics;
+    node["PerViewErrors"] >> intrinsicCameraParameters.perViewErrors;
+    node["FocusValue"] >> intrinsicCameraParameters.focusValue;
 }

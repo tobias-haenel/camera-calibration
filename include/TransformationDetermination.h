@@ -56,6 +56,7 @@ private: // methods
      * @param imagePoints Image points
      * @param objectPoints Object points
      * @param intrinsicCameraParameters Intrinsic parameters of the camera
+     * @param reprojectedImagePoints Reprojected image points
      * @param cameraTransformation Transformation from the object point coordinate system to the
      * camera coordinate system
      * @return boolean indicating success
@@ -64,6 +65,7 @@ private: // methods
     calculateCameraTransformation(std::vector<cv::Point2f> const &imagePoints,
                                   std::vector<cv::Point3f> const &objectPoints,
                                   IntrinsicCameraParameters const &intrinsicCameraParameters,
+                                  std::vector<cv::Point2f> &reprojectedImagePoints,
                                   cv::Mat &cameraTransformation);
 
     void
@@ -74,7 +76,8 @@ private: // methods
 
     void
     locateReferenceElement(std::shared_ptr<TrackingInformation> trackingInformation,
-                           cv::Mat &referenceTransformation);
+                           cv::Mat &trackerToReferenceTransform,
+                           cv::Mat &referencePosition);
 
 private: // members
     /**

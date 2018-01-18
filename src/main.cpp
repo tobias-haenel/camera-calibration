@@ -1,5 +1,7 @@
 ﻿#include <iostream>
 
+#include <opencv2/core.hpp>
+
 #include "CameraCalibration.h"
 #include "CameraInput.h"
 #include "TransformationDetermination.h"
@@ -11,14 +13,47 @@ using namespace std;
 
 int
 main(int argc, char *argv[]) {
+    const String keys =
+        "{help h usage ?      |                        | print this message}"
+        "{@settings           | settings.xml           | input settings file}"
+        "{@calib              | camera_calibration.xml | input/output camera calibration file}"
+        "{@transform          | transformation.xml     | output transformation}"
+        "{show-undistorted s  |                        | show the undistored camera input}"
+        "{calib-input c       |                        | use the camera calibration file as input}"
+        "{no-transform n      |                        | stop after camera calibration}";
+    CommandLineParser clParser{argc, argv, keys};
+    if (clParser.has("help")) {
+        clParser.printMessage();
+        return 0;
+    }
+
+    {
+        ThreadSafePrinter printer {cout};
+        printer << "Running:";
+        for (int i = 0; i < argc; ++i) {
+            printer << " " << argv[i];
+        }
+        printer << endl;
+    }
+
+    String inputSettingsFile = clParser.get<String>(0);
+    String calibFile = clParser.get<String>(1);
+    String transformFile = clParser.get<String>(2);
+    bool showUndistorted = clParser.has("show-undistorted");
+    bool useCalibFileAsInput = clParser.has("calib-input");
+    bool noTransform = clParser.has("no-transform");
+
+    if (not clParser.check()) {
+        clParser.printErrors();
+        return 0;
+    }
+
     // Read settings file
     CameraInput input;
     ReferenceObject referenceObject;
     CameraCalibration calib;
     TransformationDetermination transDeterm;
-    bool showUndistorted;
 
-    const string inputSettingsFile = argc > 1 ? argv[1] : "settings.xml";
     {
         FileStorage fs{inputSettingsFile, FileStorage::READ}; // Read the settings
         if (not fs.isOpened()) {
@@ -34,7 +69,6 @@ main(int argc, char *argv[]) {
         settingsOk &= referenceObject.settingsValid();
         fs["CameraCalibration"] >> calib;
         settingsOk &= calib.settingsValid();
-        fs["ShowUndistorted"] >> showUndistorted;
         fs["TransformationDetermination"] >> transDeterm;
         settingsOk &= transDeterm.settingsValid();
 
@@ -44,11 +78,34 @@ main(int argc, char *argv[]) {
         }
     }
 
+    // start imaging
+    if (not input.startImaging()) {
+        printErr << "Couldn't start imaging" << endl;
+        return -1;
+    }
+
     // perform camera calibration
     IntrinsicCameraParameters intrinsicParameters;
-    if (not calib.calibrate(intrinsicParameters, input, referenceObject)) {
-        printOut << "Camera calibration did not succed. Application stopping." << endl;
-        return -1;
+    if (!useCalibFileAsInput) {
+        if (not calib.calibrate(intrinsicParameters, input, referenceObject)) {
+            printOut << "Camera calibration did not succeed. Application stopping." << endl;
+            return -1;
+        }
+
+        FileStorage fs{calibFile, FileStorage::WRITE}; // Write the results
+        if (!fs.isOpened()) {
+            printOut << "Could not create the output file: \"" << calibFile << "\"" << endl;
+            return -1;
+        }
+
+        fs << "IntrinsicCameraParameters" << intrinsicParameters;
+    } else {
+        FileStorage fs{calibFile, FileStorage::READ}; // Read the results
+        if (!fs.isOpened()) {
+            printOut << "Could not open the input file: \"" << calibFile << "\"" << endl;
+            return -1;
+        }
+        fs["IntrinsicCameraParameters"] >> intrinsicParameters;
     }
 
     // optional: show undistorted images
@@ -56,26 +113,28 @@ main(int argc, char *argv[]) {
         calib.showUndistortedInput(intrinsicParameters, input);
     }
 
-    // deterime transformation from reference adapter to camera
-    Mat conversionTransformation;
+    if (noTransform) {
+        return 0;
+    }
+
+    // determine transformation from reference adapter to camera
+    Mat referenceToCameraTransform;
     if (not transDeterm.determineConversionTransformation(
-            intrinsicParameters, referenceObject, input, conversionTransformation)) {
+            intrinsicParameters, referenceObject, input, referenceToCameraTransform)) {
         printOut << "Couldn't determine the conversion transformation. Application stopping."
                  << endl;
         return -1;
     }
 
-    // store intrinsic parameters, tracking transformation and algorithm statistics
-    const string outputFile = argc > 2 ? argv[2] : "result.xml";
-    {
-        FileStorage fs{outputFile, FileStorage::WRITE}; // Write the results
-        if (!fs.isOpened()) {
-            printOut << "Could not open the output file: \"" << inputSettingsFile << "\"" << endl;
-            return -1;
-        }
+    // stop imaging
+    input.stopImaging();
 
-        fs << "IntrinsicCameraParameters" << intrinsicParameters;
-        fs << "ConversionTransformation" << conversionTransformation;
+    FileStorage fs{transformFile, FileStorage::WRITE}; // Write the results
+    if (!fs.isOpened()) {
+        printOut << "Could not create the output file: \"" << transformFile << "\"" << endl;
+        return -1;
     }
+
+    fs << "ReferenceToCameraTransformation" << referenceToCameraTransform;
     return 0;
 }

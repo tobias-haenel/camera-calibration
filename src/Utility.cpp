@@ -28,7 +28,9 @@ drawImageGrid(Mat &image, const vector<vector<int>> &imageGrid, int imageCountTa
             int imageCount = imageGrid[i][j];
             double targetFrac = static_cast<double>(imageCount) / imageCountTarget;
             Scalar color = Scalar(0, 255, 0) * targetFrac + Scalar(0, 0, 255) * (1 - targetFrac);
-            rectangle(imageOverlay, topLeft, bottomRight, color, 2);
+            if (imageCount != imageCountTarget) {
+                rectangle(imageOverlay, topLeft, bottomRight, color, 2);
+            }
         }
     }
     addWeighted(image, 0.5, imageOverlay, 0.5, 0.0, image);

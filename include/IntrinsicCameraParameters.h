@@ -17,6 +17,21 @@ struct IntrinsicCameraParameters {
      * distorted image space coordinates
      */
     cv::Mat distortionCoefficients;
+
+    /**
+     * @brief Standard deviations estimated for intrinsic parameters
+     */
+    cv::Mat standardDeviationIntrinsics;
+
+    /**
+     * @brief RMS re-projection error estimated for each pattern view
+     */
+    cv::Mat perViewErrors;
+
+    /**
+     * @brief Focus value that was reported during camera calibration, -1 if none was reported
+     */
+    int focusValue = -1;
 };
 
 /**

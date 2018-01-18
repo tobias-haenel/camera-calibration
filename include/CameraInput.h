@@ -8,47 +8,11 @@
 #include <memory>
 
 #include "CameraImage.h"
-#include "MyImageMessage.h"
+#include "ImageWithFocusMessage.h"
 #include "OpenIGTLinkConnection.h"
 
-class ImageUpdater : public ::igtl::MessageHandler {
-public:
-    typedef ImageUpdater Self;
-    typedef ::igtl::MessageHandler Superclass;
-    typedef igtl::SmartPointer<Self> Pointer;
-    typedef igtl::SmartPointer<const Self> ConstPointer;
-
-    igtlTypeMacro(ImageUpdater, ::igtl::MessageHandler);
-    igtlNewMacro(ImageUpdater);
-
-public:
-    virtual const char *
-    GetMessageType();
-
-    virtual int
-    Process(igtl::MyImageMessage *, void *);
-
-    int
-    ReceiveMessage(::igtl::Socket *socket, ::igtl::MessageBase *header, int pos);
-
-    virtual void
-    CheckCRC(int i);
-
-    void
-    SetData(void *p);
-    void *
-
-    GetData();
-
-protected:
-    ImageUpdater();
-    ~ImageUpdater() {}
-
-protected:
-    int m_CheckCRC;
-    igtl::MyImageMessage::Pointer m_Message;
-    void *m_Data;
-};
+igtlMessageHandlerClassMacro(igtl::ImageWithFocusMessage, ImageWithFocusUpdater, CameraImage);
+igtlMessageHandlerClassMacro(igtl::ImageMessage, ImageUpdater, CameraImage);
 
 /**
  * @brief The CameraInput class stream video images based on a OpenIGTLinkConnection to an imaging
@@ -60,6 +24,14 @@ public:
      * @brief Creates a new CameraInput.
      */
     CameraInput();
+
+    /**
+     * @brief Destroys the CameraInput.
+     */
+    ~CameraInput();
+
+    CameraInput(const CameraInput &) = default;
+    CameraInput &operator=(const CameraInput &) = default;
 
     /**
      * @brief Reads settings from an OpenCV FileNode.
@@ -91,6 +63,13 @@ public:
     startImaging();
 
     /**
+     * @brief Checks if the imaging process is still working.
+     * @return boolean indicating status
+     */
+    bool
+    isImaging();
+
+    /**
      * @brief Stops the imaging process.
      */
     void
@@ -113,6 +92,11 @@ private: // members
      * @brief Connection to a imaging device
      */
     std::shared_ptr<OpenIGTLinkConnection> m_imagingConnection;
+
+    /**
+     * @brief Processes ImageWithFocusMessages
+     */
+    ImageWithFocusUpdater::Pointer m_imageWithFocusUpdater;
 
     /**
      * @brief Processes ImageMessages

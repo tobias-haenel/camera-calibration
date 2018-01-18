@@ -39,10 +39,10 @@ TrackingInformation::updateFromMessage(TrackingDataMessage *trackingDataMessage)
             trackingDataElement->GetMatrix(transformation);
             {
                 lock_guard<mutex> lock{m_referenceMutex};
-                m_referenceTransformation = Mat(4, 4, CV_32F);
+                m_referenceTransformation = Mat(4, 4, CV_64F);
                 for (int row = 0; row < 4; ++row) {
                     for (int col = 0; col < 4; ++col) {
-                        m_referenceTransformation.at<float>(row, col) = transformation[row][col];
+                        m_referenceTransformation.at<double>(row, col) = transformation[row][col];
                     }
                 }
                 m_referenceTimeStamp = currentTime;

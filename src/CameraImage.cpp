@@ -2,26 +2,22 @@
 
 #include "ThreadSafePrinter.h"
 
+#include <opencv2/core.hpp>
+#include <opencv2/imgproc.hpp>
+
 using namespace cv;
 using namespace igtl;
 using namespace std;
 using namespace std::chrono;
 
-void
-CameraImage::updateFromMessage(MyImageMessage *message) {
-    if (message == nullptr) {
-        return;
-    }
-
-    duration<double> timeSinceEpoch = high_resolution_clock::now().time_since_epoch();
-    double currentTime = timeSinceEpoch.count();
-
+static Mat
+getImage(ImageMessage *message) {
     int dim[3], off[3];
     message->GetSubVolume(dim, off);
     if (dim[2] != 1) {
         printErr << "Only 2D images supported" << endl;
         printErr << "Dimensions: " << dim[0] << "x" << dim[1] << "x" << dim[2] << endl;
-        return;
+        return Mat();
     }
 
     int igtlScalarType = message->GetScalarType();
@@ -34,13 +30,13 @@ CameraImage::updateFromMessage(MyImageMessage *message) {
         cvScalarType = CV_8U;
         break;
     case ImageMessage::TYPE_INT16:
-        cvScalarType = CV_16U;
+        cvScalarType = CV_16S;
         break;
     case ImageMessage::TYPE_UINT16:
         cvScalarType = CV_16U;
         break;
     case ImageMessage::TYPE_INT32:
-        cvScalarType = CV_16U;
+        cvScalarType = CV_32S;
         break;
     case ImageMessage::TYPE_FLOAT32:
         cvScalarType = CV_32F;
@@ -52,26 +48,62 @@ CameraImage::updateFromMessage(MyImageMessage *message) {
 
     if (cvScalarType == -1) {
         printErr << "Unsupported Scalar type" << endl;
-        return;
+        return Mat();
     }
 
     int numberOfComponents = message->GetNumComponents();
     if (numberOfComponents <= 0) {
         printErr << "Invalid number of components" << endl;
-        return;
+        return Mat();
     }
 
     void *imageData = message->GetScalarPointer();
 
-    Mat messageImage{dim[0], dim[1], CV_MAKETYPE(cvScalarType, numberOfComponents), imageData};
+    Mat messageImage{dim[1], dim[0], CV_MAKETYPE(cvScalarType, numberOfComponents), imageData};
 
-    if (m_flipHorizontal) {
-        flip(messageImage, messageImage, 0);
+    double minVal, maxVal;
+    minMaxLoc(messageImage, &minVal, &maxVal);
+    double newScale = 255.0 / (maxVal - minVal);
+    messageImage.convertTo(messageImage, CV_8U, newScale, -newScale * minVal);
+
+    if (numberOfComponents == 1) {
+        Mat grayImage;
+        cvtColor(messageImage, grayImage, COLOR_GRAY2BGR);
+        messageImage = grayImage;
     }
 
-    if (m_flipVertical) {
-        flip(messageImage, messageImage, 1);
+    return messageImage;
+}
+
+void
+CameraImage::updateFromMessage(ImageWithFocusMessage *message) {
+    if (message == nullptr) {
+        return;
     }
+
+    duration<double> timeSinceEpoch = high_resolution_clock::now().time_since_epoch();
+    double currentTime = timeSinceEpoch.count();
+    Mat messageImage = getImage(message);
+    transformImage(messageImage);
+    int focusValue = message->GetFocusValue();
+
+    lock_guard<mutex> lock{m_mutex};
+    m_image = messageImage.clone();
+    m_timeStamp = currentTime;
+    m_focusValue = focusValue;
+    m_newPictureCondition.notify_all();
+}
+
+void
+CameraImage::updateFromMessage(ImageMessage *message) {
+    if (message == nullptr) {
+        return;
+    }
+
+    duration<double> timeSinceEpoch = high_resolution_clock::now().time_since_epoch();
+    double currentTime = timeSinceEpoch.count();
+    Mat messageImage = getImage(message);
+    transformImage(messageImage);
 
     lock_guard<mutex> lock{m_mutex};
     m_image = messageImage.clone();
@@ -80,10 +112,11 @@ CameraImage::updateFromMessage(MyImageMessage *message) {
 }
 
 void
-CameraImage::currentImage(Mat &image, double &timeStamp) {
+CameraImage::currentImage(Mat &image, double &timeStamp, int &focusValue) {
     lock_guard<mutex> lock{m_mutex};
     image = m_image.clone();
     timeStamp = m_timeStamp;
+    focusValue = m_focusValue;
 }
 
 bool
@@ -100,4 +133,15 @@ CameraImage::setFlipHorizontal(bool flipHorizontal) {
 void
 CameraImage::setFlipVertical(bool flipVertical) {
     m_flipVertical = flipVertical;
+}
+
+void
+CameraImage::transformImage(Mat &image) {
+    if (m_flipHorizontal) {
+        flip(image, image, 0);
+    }
+
+    if (m_flipVertical) {
+        flip(image, image, 1);
+    }
 }

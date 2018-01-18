@@ -45,6 +45,10 @@ ReferenceObject::calibrationPattern() const {
 
 void
 ReferenceObject::objectPoints(std::vector<Point3f> &objectPoints) const {
+//    objectPointsOnPlane({0, m_spacing * (m_boardSize.height - 1), 0},
+//                        {m_spacing, 0, 0},
+//                        {0, -m_spacing, 0},
+//                        objectPoints);
     objectPointsOnPlane({0, 0, 0}, {m_spacing, 0, 0}, {0, m_spacing, 0}, objectPoints);
 }
 

@@ -4,16 +4,16 @@
 #include "igtl_myImage.h"
 
 namespace igtl {
-class MyImageMessage : public ImageMessage {
+class ImageWithFocusMessage : public ImageMessage {
 
 public:
-    typedef MyImageMessage Self;
+    typedef ImageWithFocusMessage Self;
     typedef ImageMessage Superclass;
     typedef SmartPointer<Self> Pointer;
     typedef SmartPointer<const Self> ConstPointer;
 
-    igtlTypeMacro(igtl::MyImageMessage, igtl::ImageMessage);
-    igtlNewMacro(igtl::MyImageMessage);
+    igtlTypeMacro(igtl::ImageWithFocusMessage, igtl::ImageMessage);
+    igtlNewMacro(igtl::ImageWithFocusMessage);
 
     void
     SetFocusValue(const int f) {
@@ -24,8 +24,8 @@ public:
         return m_FocusValue;
     }
 
-    MyImageMessage();
-    ~MyImageMessage();
+    ImageWithFocusMessage();
+    ~ImageWithFocusMessage();
 
     virtual int
     GetBodyPackSize();
@@ -33,6 +33,9 @@ public:
     PackBody();
     virtual int
     UnpackBody();
+
+    void
+    AllocateScalars();
 
 protected:
     int m_FocusValue;

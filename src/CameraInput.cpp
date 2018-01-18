@@ -1,17 +1,13 @@
 ﻿#include "CameraInput.h"
 
+#include "ThreadSafePrinter.h"
+
 using namespace std;
 using namespace cv;
 using namespace igtl;
 
-const char *
-ImageUpdater::GetMessageType() {
-    return this->m_Message->GetDeviceType();
-}
-
 int
-ImageUpdater::Process(MyImageMessage *message, void *data) {
-    CameraImage *cameraImage = static_cast<CameraImage *>(data);
+ImageWithFocusUpdater::Process(ImageWithFocusMessage *message, CameraImage *cameraImage) {
     if (cameraImage == nullptr) {
         return 0;
     }
@@ -21,58 +17,27 @@ ImageUpdater::Process(MyImageMessage *message, void *data) {
 }
 
 int
-ImageUpdater::ReceiveMessage(Socket *socket, MessageBase *header, int pos) {
-    if (pos == 0) /* New body */
-    {
-        this->m_Message->SetMessageHeader(header);
-        this->m_Message->AllocatePack();
+ImageUpdater::Process(ImageMessage *message, CameraImage *cameraImage) {
+    if (cameraImage == nullptr) {
+        return 0;
     }
-    int s = socket->Receive((void *) ((char *) this->m_Message->GetPackBodyPointer() + pos),
-                            this->m_Message->GetPackBodySize() - pos);
-    if (s < 0) /* Time out */
-    {
-        return pos;
-    }
-    if (s + pos >= this->m_Message->GetPackBodySize()) {
-        int r = this->m_Message->Unpack(this->m_CheckCRC);
-        if (r) {
-            Process(this->m_Message, this->m_Data);
-        } else {
-            return -1;
-        }
-    }
-    return s + pos; /* return current position in the body */
-}
 
-void
-ImageUpdater::CheckCRC(int i) {
-    if (i == 0) {
-        this->m_CheckCRC = 0;
-    } else {
-        this->m_CheckCRC = 1;
-    }
-}
-
-void
-ImageUpdater::SetData(void *p) {
-    this->m_Data = p;
-}
-
-void *
-ImageUpdater::GetData() {
-    return this->m_Data;
-}
-
-ImageUpdater::ImageUpdater() {
-    this->m_Message = igtl::MyImageMessage::New();
-    this->m_CheckCRC = 1;
-    this->m_Data = nullptr;
+    cameraImage->updateFromMessage(message);
+    return 1;
 }
 
 CameraInput::CameraInput()
-    : m_imageUpdater{ImageUpdater::New()}, m_cameraImage{make_shared<CameraImage>()} {
+    : m_imageWithFocusUpdater{ImageWithFocusUpdater::New()},
+      m_imageUpdater{ImageUpdater::New()},
+      m_cameraImage{make_shared<CameraImage>()} {
+    m_imageWithFocusUpdater->SetData(m_cameraImage.get());
     m_imageUpdater->SetData(m_cameraImage.get());
-    m_imageUpdater->CheckCRC(0);
+    m_imageWithFocusUpdater->CheckCRC(1);
+    m_imageUpdater->CheckCRC(1);
+}
+
+CameraInput::~CameraInput() {
+    stopImaging();
 }
 
 bool
@@ -90,6 +55,7 @@ CameraInput::readSettings(const FileNode &node) {
         m_cameraImage->setFlipVertical(flipVertical);
         m_imagingConnection = make_shared<OpenIGTLinkConnection>(m_hostName, m_port);
         m_imagingConnection->addMessageHandler(m_imageUpdater);
+        m_imagingConnection->addMessageHandler(m_imageWithFocusUpdater);
     }
 
     return m_settingsValid;
@@ -116,6 +82,15 @@ CameraInput::startImaging() {
     }
 
     return true;
+}
+
+bool
+CameraInput::isImaging() {
+    if (m_imagingConnection == nullptr) {
+        return false;
+    }
+
+    return m_imagingConnection->isOpen();
 }
 
 void

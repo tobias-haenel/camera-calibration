@@ -1,5 +1,7 @@
 ﻿#include "ObjectLocater.h"
 
+#include "ThreadSafePrinter.h"
+
 using namespace std;
 using namespace cv;
 using namespace igtl;
@@ -49,12 +51,22 @@ ObjectLocater::trackingInformation() const {
 }
 
 bool
-ObjectLocater::startTracking() {
-    if (m_trackingConnection == nullptr) {
+ObjectLocater::openConnection() {
+    return m_trackingConnection->open();
+}
+
+bool
+ObjectLocater::closeConnection() {
+    if (m_trackingConnection == nullptr or not m_trackingConnection->isOpen()) {
         return false;
     }
+    m_trackingConnection->close();
+    return  true;
+}
 
-    if (not m_trackingConnection->open()) {
+bool
+ObjectLocater::startTracking() {
+    if (m_trackingConnection == nullptr or not m_trackingConnection->isOpen()) {
         return false;
     }
 
@@ -72,7 +84,6 @@ ObjectLocater::stopTracking() {
     }
 
     m_trackingConnection->stopRequestingTrackingData();
-    m_trackingConnection->close();
 }
 
 void

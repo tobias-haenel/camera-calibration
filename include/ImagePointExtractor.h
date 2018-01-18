@@ -37,6 +37,7 @@ public:
      * @param imagePoints List of image points where each set of image points corresponds to one
      * input image
      * @param imageSize Size (width and height) of all images
+     * @param focusValue Focus value that was reported from the input (-1, if none was reported)
      * @param referenceObject Reference Object that should be detected
      * @param input CameraInput that is used to obtain images
      * @return boolean indicating success
@@ -44,6 +45,7 @@ public:
     bool
     findImagePoints(std::vector<std::vector<cv::Point2f>> &imagePoints,
                     cv::Size &imageSize,
+                    int &focusValue,
                     ReferenceObject const &referenceObject,
                     CameraInput &input) const;
 
@@ -64,6 +66,7 @@ private: // methods
         bool moving = false;
         bool gridCellFull = false;
         double pointsAddedTime = 0.0;
+        bool addImages = false;
     };
 
     /**

@@ -45,6 +45,12 @@ public:
     std::shared_ptr<TrackingInformation>
     trackingInformation() const;
 
+    bool
+    openConnection();
+
+    bool
+    closeConnection();
+
     /**
      * @brief Starts the tracking process.
      * @return boolean indicating success

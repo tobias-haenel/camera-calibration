@@ -2,10 +2,13 @@
 
 #include <opencv2/calib3d.hpp>
 #include <opencv2/highgui.hpp>
+#include <opencv2/imgproc.hpp>
 
 #include <chrono>
 
 #include "Utility.h"
+
+#include "ThreadSafePrinter.h"
 
 using namespace std;
 using namespace std::chrono;
@@ -32,6 +35,8 @@ TransformationDetermination::readSettings(const FileNode &node) {
         m_flag = SOLVEPNP_P3P;
     } else if (poseEstimationMethod == "AP3P") {
         m_flag = SOLVEPNP_AP3P;
+    } else if (poseEstimationMethod == "EPNP") {
+        m_flag = SOLVEPNP_EPNP;
     } else if (poseEstimationMethod == "DLS") {
         m_flag = SOLVEPNP_DLS;
     } else if (poseEstimationMethod == "UPNP") {
@@ -53,15 +58,18 @@ TransformationDetermination::determineConversionTransformation(
     const IntrinsicCameraParameters &intrinsicCameraParameters,
     const ReferenceObject &patternObject,
     CameraInput &input,
-    Mat &referenceToCameraTransformation) {
+    Mat &referenceToCameraTransform) {
 
     // find image points of still pattern object
     vector<vector<Point2f>> pointSets;
     Size imageSize;
-    if (not m_imagePointExtractor.findImagePoints(pointSets, imageSize, patternObject, input)) {
+    int focusValue;
+    if (not m_imagePointExtractor.findImagePoints(
+            pointSets, imageSize, focusValue, patternObject, input)) {
         printErr << "Couldn't find image points" << endl;
         return false;
     }
+
     vector<Point2f> &foundImagePoints = pointSets.at(0);
 
     // extract required image points for pose estimation
@@ -81,12 +89,19 @@ TransformationDetermination::determineConversionTransformation(
     }
 
     // locate necessary points/elements
-    if (not m_objectLocater.startTracking()) {
-        printErr << "Couldn't start the tracking" << endl;
+    namedWindow("Image View");
+    if (not m_objectLocater.openConnection()) {
+        destroyWindow("Image View");
+        printErr << "Couldn't open the tracking connection" << endl;
         return false;
     }
-    if (not input.startImaging()) {
-        printErr << "Couldn't start imaging" << endl;
+
+    while (waitKey() != 'T') {
+        // noop
+    }
+
+    if (not m_objectLocater.startTracking()) {
+        printErr << "Couldn't start the tracking" << endl;
         return false;
     }
     shared_ptr<TrackingInformation> trackingInformation = m_objectLocater.trackingInformation();
@@ -97,16 +112,16 @@ TransformationDetermination::determineConversionTransformation(
         printErr << "Did not receive any images" << endl;
         return false;
     }
-    namedWindow("Image View");
     locateObjectPoint("Top left", trackingInformation, cameraImage, topLeft);
+    printOut << "Top left position: " << topLeft << endl;
     locateObjectPoint("Top right", trackingInformation, cameraImage, topRight);
+    printOut << "Top right position: " << topRight << endl;
     locateObjectPoint("Bottom left", trackingInformation, cameraImage, bottomLeft);
+    printOut << "Bottom left position: " << bottomLeft << endl;
     destroyWindow("Image View");
-    input.stopImaging();
     // find reference element transformation
-    Mat referenceTransformation;
-    locateReferenceElement(trackingInformation, referenceTransformation);
-    m_objectLocater.stopTracking();
+    Mat trackerToReferenceTransform, referencePosition;
+    locateReferenceElement(trackingInformation, trackerToReferenceTransform, referencePosition);
 
     // calculate object points
     vector<Point3f> calculatedObjectPoints;
@@ -132,15 +147,132 @@ TransformationDetermination::determineConversionTransformation(
     }
 
     // perform pose estimation to calculate the camera transformation
-    Mat cameraTransformation;
-    if (not calculateCameraTransformation(
-            imagePoints, calculatedObjectPoints, intrinsicCameraParameters, cameraTransformation)) {
-        printErr << "Couldn't calculate camera transformation" << endl;
+    Mat trackerToCameraTransform;
+    vector<Point2f> reprojectedImagePoints;
+    if (not calculateCameraTransformation(imagePoints,
+                                          calculatedObjectPoints,
+                                          intrinsicCameraParameters,
+                                          reprojectedImagePoints,
+                                          trackerToCameraTransform)) {
+        printErr << "Couldn't calculate tracker to camera transformation" << endl;
         return false;
     }
 
+    float poseRms = 0.0;
+    for (size_t i = 0; i < foundImagePoints.size(); ++i) {
+        Point2f poseImagePoint = foundImagePoints.at(i);
+        Point2f reprojectedPoseImagePoint = reprojectedImagePoints.at(i);
+        Point2f v = poseImagePoint - reprojectedPoseImagePoint;
+        poseRms += v.x * v.x + v.y * v.y;
+    }
+    poseRms /= static_cast<float>(foundImagePoints.size());
+    poseRms = sqrt(poseRms);
+    printOut << "Reported re-projection error after pose estimation: " << poseRms << endl;
+
+    Mat originHomogenous = Mat::zeros(4, 1, CV_64F);
+    originHomogenous.at<double>(3) = 1.0;
+
+    Mat cameraPositionHomogenous = trackerToCameraTransform.inv() * originHomogenous;
+    Mat cameraPosition = Mat::zeros(3, 1, CV_64F);
+    for (int i = 0; i < 3; ++i) {
+        cameraPosition.at<double>(i) = cameraPositionHomogenous.at<double>(i);
+    }
+
     // calculate the transformation from the reference element to the camera
-    referenceToCameraTransformation = referenceTransformation.inv() * cameraTransformation;
+    Mat referenceToTrackerTransform = trackerToReferenceTransform.inv();
+    referenceToCameraTransform = trackerToCameraTransform * referenceToTrackerTransform;
+
+    double cameraToReferenceDistance = norm(cameraPosition - referencePosition);
+
+    printOut << "Reference adapter position in tracker coordinate system:" << endl
+             << referencePosition << endl;
+
+    printOut << "Camera position in tracker coordinate system:" << endl << cameraPosition << endl;
+
+    printOut << "Distance from camera to reference adapter: " << cameraToReferenceDistance << endl;
+
+    printOut << "Tracker to reference adapter transformation:" << endl
+             << trackerToReferenceTransform << endl;
+
+    printOut << "Calculated tracker to camera transformation:" << endl
+             << trackerToCameraTransform << endl;
+
+    printOut << "Calculated Reference Adapter to Camera Transformation:" << endl
+             << referenceToCameraTransform << endl;
+
+    double imageTimeStamp = 0.0;
+    int imageFocusValue;
+    Mat image;
+
+    namedWindow("Reprojected Pattern Image");
+    do {
+        cameraImage->currentImage(image, imageTimeStamp, imageFocusValue);
+        drawChessboardCorners(image, patternObject.boardSize(), reprojectedImagePoints, true);
+
+        imshow("Reprojected Pattern Image", image);
+    } while (waitKey(1) != '1');
+    destroyWindow("Reprojected Pattern Image");
+
+    namedWindow("Reprojected Pointer Image");
+    do {
+        double timeStamp;
+        Vec3f pointerPos;
+        Mat refData;
+        trackingInformation->pointer(pointerPos, timeStamp);
+        trackingInformation->referenceElement(refData, timeStamp);
+
+        Mat refTrans = Mat::eye(4, 4, CV_64F);
+        for (int i = 0; i < 3; ++i) {
+            refTrans.at<double>(i, 3) = -refData.at<double>(i, 3);
+        }
+        Mat refRot = Mat::eye(4, 4, CV_64F);
+        for (int row = 0; row < 3; ++row) {
+            for (int col = 0; col < 3; ++col) {
+                refRot.at<double>(row, col) = refData.at<double>(row, col);
+            }
+        }
+        Mat trackToRef = refRot * refTrans;
+//        Mat trackToRef = Mat::eye(4, 4, CV_64F);
+//        for (int row = 0; row < 3; ++row) {
+//            for (int col = 0; col < 4; ++col) {
+//                trackToRef.at<double>(row, col) = refData.at<double>(row, col);
+//            }
+//        }
+
+        Mat trackToCamera = referenceToCameraTransform * trackToRef;
+        Mat rMat = Mat(trackToCamera, Range(0, 3), Range(0, 3));
+        Mat tVec = Mat(trackToCamera, Range(0, 3), Range(3, 4));
+        Mat rVec;
+        Rodrigues(rMat, rVec);
+
+        vector<Vec3f> objectPoints = {pointerPos};
+        vector<Vec2f> imagePoints;
+        projectPoints(objectPoints,
+                      rVec,
+                      tVec,
+                      intrinsicCameraParameters.cameraMatrix,
+                      intrinsicCameraParameters.distortionCoefficients,
+                      imagePoints);
+
+        printOut << "rVec: " << rVec.t() <<  " tVec: " << tVec.t() << endl;
+
+        cameraImage->currentImage(image, imageTimeStamp, imageFocusValue);
+
+        Rect rect(Point(), image.size());
+        Point pointerImagePoint{imagePoints.at(0)};
+
+        if (rect.contains(pointerImagePoint)) {
+            drawMarker(image, pointerImagePoint, Scalar(0, 0, 255));
+        }
+
+        imshow("Reprojected Pointer Image", image);
+    } while (waitKey(1) != '2');
+    destroyWindow("Reprojected Pointer Image");
+
+    input.stopImaging();
+
+    m_objectLocater.stopTracking();
+    m_objectLocater.closeConnection();
 
     return true;
 }
@@ -200,10 +332,11 @@ TransformationDetermination::calculateCameraTransformation(
     const std::vector<Point2f> &imagePoints,
     const std::vector<Point3f> &objectPoints,
     const IntrinsicCameraParameters &intrinsicCameraParameters,
+    std::vector<Point2f> &reprojectedImagePoints,
     Mat &cameraTransformation) {
 
-    Mat rotationVector = Mat(3, 1, CV_32F); // output rotation vector
-    Mat translationVector = Mat(3, 1, CV_32F);
+    Mat rotationVector = Mat::zeros(3, 1, CV_64F); // output rotation vector
+    Mat translationVector = Mat::zeros(3, 1, CV_64F);
     if (not solvePnP(objectPoints,
                      imagePoints,
                      intrinsicCameraParameters.cameraMatrix,
@@ -216,17 +349,24 @@ TransformationDetermination::calculateCameraTransformation(
         return false;
     }
 
-    cameraTransformation = Mat::eye(4, 4, CV_32F);
+    projectPoints(objectPoints,
+                  rotationVector,
+                  translationVector,
+                  intrinsicCameraParameters.cameraMatrix,
+                  intrinsicCameraParameters.distortionCoefficients,
+                  reprojectedImagePoints);
+
+    cameraTransformation = Mat::eye(4, 4, CV_64F);
     Mat rotationMatrix;
     Rodrigues(rotationVector, rotationMatrix);
     for (int row = 0; row < 3; ++row) {
         for (int col = 0; col < 3; ++col) {
-            cameraTransformation.at<float>(row, col) = rotationMatrix.at<float>(row, col);
+            cameraTransformation.at<double>(row, col) = rotationMatrix.at<double>(row, col);
         }
     }
 
     for (int i = 0; i < 3; ++i) {
-        cameraTransformation.at<float>(i, 3) = translationVector.at<float>(i);
+        cameraTransformation.at<double>(i, 3) = translationVector.at<double>(i);
     }
 
     return true;
@@ -240,6 +380,7 @@ TransformationDetermination::locateObjectPoint(
     Vec3f &objectPoint) {
 
     double imageTimeStamp = 0.0;
+    int imageFocusValue;
     Mat image;
     duration<double> timeSinceEpoch = high_resolution_clock::now().time_since_epoch();
     double startTime = timeSinceEpoch.count();
@@ -248,7 +389,7 @@ TransformationDetermination::locateObjectPoint(
         timeSinceEpoch = high_resolution_clock::now().time_since_epoch();
         currentTime = timeSinceEpoch.count();
 
-        cameraImage->currentImage(image, imageTimeStamp);
+        cameraImage->currentImage(image, imageTimeStamp, imageFocusValue);
 
         int countDown = static_cast<int>(ceil(m_cooldownDuration - currentTime + startTime));
         drawMessage(image, to_string(countDown), {255, 255, 255});
@@ -259,11 +400,14 @@ TransformationDetermination::locateObjectPoint(
 
     Vec3f referencePosition, currentPosition, averagePosition;
     int positions = 0;
-    double referenceTime = 0.0, positionTimeStamp = 0.0;
+    timeSinceEpoch = high_resolution_clock::now().time_since_epoch();
+    currentTime = timeSinceEpoch.count();
+    double referenceTime = currentTime;
+    double positionTimeStamp = 0.0;
     while (true) {
         timeSinceEpoch = high_resolution_clock::now().time_since_epoch();
         currentTime = timeSinceEpoch.count();
-        cameraImage->currentImage(image, imageTimeStamp);
+        cameraImage->currentImage(image, imageTimeStamp, imageFocusValue);
         double oldPositionTimeStamp = positionTimeStamp;
         trackingInformation->pointer(currentPosition, positionTimeStamp);
         if (oldPositionTimeStamp < positionTimeStamp and currentTime - positionTimeStamp < 1) {
@@ -287,10 +431,10 @@ TransformationDetermination::locateObjectPoint(
         }
 
         if (movedFromReference) {
-            drawMessage(image, pointName, {0, 0, 255});
+            drawMessage(image, pointName + " (M)", {0, 0, 255});
         } else if (positionTimeStamp - referenceTime < m_stillDelay or
                    positions < m_minimalPositionCount) {
-            drawMessage(image, pointName, {0, 255, 255});
+            drawMessage(image, pointName + " (D)", {0, 255, 255});
         } else {
             drawMessage(image, "OK", {0, 255, 0});
             imshow("Image View", image);
@@ -306,16 +450,38 @@ TransformationDetermination::locateObjectPoint(
 
 void
 TransformationDetermination::locateReferenceElement(
-    std::shared_ptr<TrackingInformation> trackingInformation, Mat &referenceTransformation) {
+    std::shared_ptr<TrackingInformation> trackingInformation,
+    Mat &trackerToReferenceTransform,
+    Mat &referencePosition) {
     double timeStamp = 0.0;
     duration<double> timeSinceEpoch = high_resolution_clock::now().time_since_epoch();
     double currentTime = timeSinceEpoch.count();
+    Mat referenceData;
     while (currentTime - timeStamp > 1) {
         timeSinceEpoch = high_resolution_clock::now().time_since_epoch();
         currentTime = timeSinceEpoch.count();
-        trackingInformation->referenceElement(referenceTransformation, timeStamp);
+        trackingInformation->referenceElement(referenceData, timeStamp);
         this_thread::sleep_for(1ms);
     }
+    referencePosition = Mat::zeros(3, 1, CV_64F);
+    Mat referenceTranslation = Mat::eye(4, 4, CV_64F);
+    for (int i = 0; i < 3; ++i) {
+        referenceTranslation.at<double>(i, 3) = -referenceData.at<double>(i, 3);
+        referencePosition.at<double>(i) = referenceData.at<double>(i, 3);
+    }
+    Mat referenceRotation = Mat::eye(4, 4, CV_64F);
+    for (int row = 0; row < 3; ++row) {
+        for (int col = 0; col < 3; ++col) {
+            referenceRotation.at<double>(row, col) = referenceData.at<double>(row, col);
+        }
+    }
+    trackerToReferenceTransform = referenceRotation * referenceTranslation;
+//    trackerToReferenceTransform = Mat::eye(4, 4, CV_64F);
+//    for (int row = 0; row < 3; ++row) {
+//        for (int col = 0; col < 4; ++col) {
+//            trackerToReferenceTransform.at<double>(row, col) = referenceData.at<double>(row, col);
+//        }
+//    }
 }
 
 void

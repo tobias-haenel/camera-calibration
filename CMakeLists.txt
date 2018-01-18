@@ -4,6 +4,8 @@ project(camera-calibration)
 
 set(CMAKE_THREAD_PREFER_PTHREAD TRUE)
 
+set(OpenIGTLink_DIR /usr/local/lib/igtl)
+
 find_package(OpenCV REQUIRED)
 find_package(OpenIGTLink REQUIRED)
 find_package(Threads REQUIRED)

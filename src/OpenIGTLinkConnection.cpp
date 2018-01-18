@@ -18,15 +18,16 @@
 #include <igtlTrajectoryMessage.h>
 #include <igtlTransformMessage.h>
 
+#include "ThreadSafePrinter.h"
+
 using namespace igtl;
 using namespace std;
 
 OpenIGTLinkConnection::OpenIGTLinkConnection(const string &host, int port)
-    : m_sessionManager{SessionManager::New()} {
-    m_sessionManager->SetHostname(host.c_str());
-    m_sessionManager->SetPort(port);
-    m_sessionManager->SetMode(SessionManager::MODE_CLIENT);
-}
+    : m_clientSocket{ClientSocket::New()},
+      m_messageHeader{MessageHeader::New()},
+      m_hostName{host},
+      m_port{port} {}
 
 OpenIGTLinkConnection::~OpenIGTLinkConnection() {
     close();
@@ -34,11 +35,13 @@ OpenIGTLinkConnection::~OpenIGTLinkConnection() {
 
 bool
 OpenIGTLinkConnection::addMessageHandler(MessageHandler *messageHandler) {
-    if (m_receivingMessages) {
+    if (m_receivingMessages or not messageHandler) {
         return false;
     }
 
-    return m_sessionManager->AddMessageHandler(messageHandler);
+    std::string messageType{messageHandler->GetMessageType()};
+    m_messageHandlers[messageType] = messageHandler;
+    return false;
 }
 
 bool
@@ -50,6 +53,11 @@ OpenIGTLinkConnection::open() {
     startReceiveMessageThread();
 
     return true;
+}
+
+bool
+OpenIGTLinkConnection::isOpen() {
+    return m_receivingMessages;
 }
 
 bool
@@ -201,7 +209,8 @@ OpenIGTLinkConnection::stopRequestingTrackingData(const string &device) {
 
 void
 OpenIGTLinkConnection::close() {
-    stopReceiveMessageThread(); // triggers connection close at end
+    disconnect();
+    stopReceiveMessageThread();
 }
 
 bool
@@ -211,7 +220,7 @@ OpenIGTLinkConnection::sendMessage(MessageBase::Pointer message, const string &d
         message->SetDeviceName(device.c_str());
     }
     message->Pack();
-    if (m_sessionManager->PushMessage(message) == 1) {
+    if (m_clientSocket->Send(message->GetPackPointer(), message->GetPackSize()) == 1) {
         printOut << task << "success" << std::endl;
         return true;
     } else {
@@ -223,11 +232,33 @@ OpenIGTLinkConnection::sendMessage(MessageBase::Pointer message, const string &d
 void
 OpenIGTLinkConnection::receiveMessagesLoop() {
     while (m_receivingMessages) {
-        if (m_sessionManager->ProcessMessage() == 0) {
+        m_messageHeader->InitPack();
+
+        // Receive generic header from the socket
+        int r = m_clientSocket->Receive(m_messageHeader->GetPackPointer(),
+                                        m_messageHeader->GetPackSize());
+        if (r < 0) {
+            printErr << "Error while receiving the message header" << endl;
             break;
         }
+
+        m_messageHeader->Unpack();
+        std::string messageType = m_messageHeader->GetDeviceType();
+        auto messageHandlerIt = m_messageHandlers.find(messageType);
+        if (messageHandlerIt != m_messageHandlers.end()) {
+            MessageHandler *messageHandler = messageHandlerIt->second;
+            int r = messageHandler->ReceiveMessage(m_clientSocket, m_messageHeader, 0);
+            if (r != m_messageHeader->GetBodySizeToRead()) {
+                printErr << "Error while receiving the message body, expected "
+                         << m_messageHeader->GetBodySizeToRead() << " bytes, got " << r << " bytes"
+                         << endl;
+                m_receivingMessages = false;
+                break;
+            }
+        } else {
+            m_clientSocket->Skip(m_messageHeader->GetBodySizeToRead(), 1);
+        }
     }
-    disconnect();
 }
 
 void
@@ -248,9 +279,13 @@ OpenIGTLinkConnection::stopReceiveMessageThread() {
 
 bool
 OpenIGTLinkConnection::connect() {
-    string task = "Opening connection to " + string(m_sessionManager->GetHostname()) + ':' +
-        to_string(m_sessionManager->GetPort()) + " ... ";
-    if (m_sessionManager->Connect() == 1) {
+    string task = "Opening connection to " + string(m_hostName) + ':' + to_string(m_port) + " ... ";
+    if (m_clientSocket->GetConnected()) {
+        printErr << task << "already connected" << endl;
+        return false;
+    }
+
+    if (m_clientSocket->ConnectToServer(m_hostName.c_str(), m_port) == 0) {
         printOut << task << "success" << endl;
         return true;
     } else {
@@ -261,7 +296,9 @@ OpenIGTLinkConnection::connect() {
 
 void
 OpenIGTLinkConnection::disconnect() {
-    m_sessionManager->Disconnect();
-    printOut << "Closing connection to " << m_sessionManager->GetHostname() << ':'
-             << m_sessionManager->GetPort() << " ... success" << endl;
+    if (m_clientSocket->GetConnected()) {
+        m_clientSocket->CloseSocket();
+        printOut << "Closing connection to " << m_hostName << ':' << m_port << " ... success"
+                 << endl;
+    }
 }

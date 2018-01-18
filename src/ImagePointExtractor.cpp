@@ -43,6 +43,7 @@ ImagePointExtractor::settingsValid() const {
 bool
 ImagePointExtractor::findImagePoints(vector<vector<Point2f>> &imagePoints,
                                      Size &imageSize,
+                                     int &focusValue,
                                      const ReferenceObject &referenceObject,
                                      CameraInput &input) const {
     Data data;
@@ -50,11 +51,6 @@ ImagePointExtractor::findImagePoints(vector<vector<Point2f>> &imagePoints,
     data.imageCountGrid.resize(static_cast<size_t>(m_gridSize.width));
     for (vector<int> &column : data.imageCountGrid) {
         column.resize(static_cast<size_t>(m_gridSize.height), 0);
-    }
-
-    if (not input.startImaging()) {
-        printErr << "Couldn't start imaging" << endl;
-        return false;
     }
 
     shared_ptr<CameraImage> cameraImage = input.cameraImage();
@@ -65,12 +61,19 @@ ImagePointExtractor::findImagePoints(vector<vector<Point2f>> &imagePoints,
 
     double imageTimeStamp = 0.0;
     Mat image, featureImage;
+    bool error = false;
     while (static_cast<int>(imagePoints.size()) < m_detectionsPerGridCell * m_gridSize.area()) {
-        cameraImage->currentImage(image, imageTimeStamp);
+        if (not input.isImaging()) {
+            printErr << "Imaging stopped before enough feature points could be detected" << endl;
+            error = true;
+            break;
+        }
+        cameraImage->currentImage(image, imageTimeStamp, focusValue);
         imageSize = image.size();
         if (imageSize.empty()) {
             printErr << "Obtained empty image" << endl;
-            return false;
+            error = true;
+            break;
         }
 
         determineFeatureImage(image, featureImage);
@@ -81,9 +84,16 @@ ImagePointExtractor::findImagePoints(vector<vector<Point2f>> &imagePoints,
         bool pointsAdded = false;
         if (found) {
             pointsAdded = addImagePoints(imagePoints, data, currentImagePoints, imageSize);
+        } else {
+            data.referenceTime = imageTimeStamp;
         }
 
         if (pointsAdded) {
+            Mat imageWithCorners = image.clone();
+            drawChessboardCorners(
+                imageWithCorners, referenceObject.boardSize(), currentImagePoints, found);
+            imwrite("image-" + to_string(imagePoints.size()) + ".png", imageWithCorners);
+            imwrite("feature-" + to_string(imagePoints.size()) + ".png", featureImage);
             bitwise_not(image, image);
         }
 
@@ -93,6 +103,9 @@ ImagePointExtractor::findImagePoints(vector<vector<Point2f>> &imagePoints,
 
         if (found) {
             drawChessboardCorners(image, referenceObject.boardSize(), currentImagePoints, found);
+        }
+
+        if (found) {
             string message;
             Scalar color;
             if (data.moving) {
@@ -104,32 +117,32 @@ ImagePointExtractor::findImagePoints(vector<vector<Point2f>> &imagePoints,
             } else if (data.cooldownActive) {
                 message = "Cooldown active";
                 color = Scalar(0, 255, 255); // yellow
+            } else if (not data.addImages) {
+                message = "Images aren't added";
+                color = Scalar(255, 0, 0);
             } else {
                 message = "Added";
                 color = Scalar(0, 255, 0); // green
             }
             drawMessage(image, message, color);
         }
-
         imshow("Image View", image);
-        waitKey(pointsAdded ? 200 : 1);
+        char key = waitKey(pointsAdded ? 200 : 1);
+        if (key == ' ') {
+            data.addImages = not data.addImages;
+        }
     }
 
     destroyWindow("Image View");
+    destroyWindow("Feature Image View");
 
-    input.stopImaging();
-
-    return true;
+    return not error;
 }
 
 void
 ImagePointExtractor::showUndistoredInput(const IntrinsicCameraParameters &result,
                                          CameraInput &input) {
     Data data;
-    if (not input.startImaging()) {
-        printErr << "Couldn't start imaging" << endl;
-        return;
-    }
 
     shared_ptr<CameraImage> cameraImage = input.cameraImage();
     if (not cameraImage->waitForNewImage()) {
@@ -140,8 +153,9 @@ ImagePointExtractor::showUndistoredInput(const IntrinsicCameraParameters &result
     bool undistorted = true;
     Mat image;
     double imageTimeStamp = 0.0;
+    int imageFocusValue;
     while (true) {
-        cameraImage->currentImage(image, imageTimeStamp);
+        cameraImage->currentImage(image, imageTimeStamp, imageFocusValue);
         Mat featureImage;
         determineFeatureImage(image, featureImage);
 
@@ -164,8 +178,6 @@ ImagePointExtractor::showUndistoredInput(const IntrinsicCameraParameters &result
     }
 
     destroyWindow("Image View");
-
-    input.stopImaging();
 }
 
 bool
@@ -210,10 +222,23 @@ ImagePointExtractor::addImagePoints(std::vector<std::vector<Point2f>> &imagePoin
     data.moving = movedFromReference or (currentTime - data.referenceTime < m_stillDelay);
     data.gridCellFull = data.imageCountGrid[gridColumnIdx][gridRowIdx] >= m_detectionsPerGridCell;
 
-    if (data.cooldownActive or data.moving or data.gridCellFull) {
+    if (data.cooldownActive or data.moving or data.gridCellFull or not data.addImages) {
         return false;
     }
 
+    {
+        size_t i = 0;
+        ThreadSafePrinter print{cout};
+        print << "Added image points: " << endl;
+        for (int y = 0; y < data.referenceObject.boardSize().height; ++y) {
+            print << "  ";
+            for (int x = 0; x < data.referenceObject.boardSize().width; ++x, ++i) {
+                Point2f p = currentImagePoints.at(i);
+                print << (x != 0 ? " " : "") << '(' << p.x << ", " << p.y << ')';
+            }
+            print << endl;
+        }
+    }
     imagePoints.push_back(currentImagePoints);
     data.imageShapes.push_back(currentShape);
     data.imageCountGrid[gridColumnIdx][gridRowIdx] += 1;
@@ -242,7 +267,23 @@ ImagePointExtractor::detectFeaturePoints(vector<Point2f> &featurePoints,
         }
     }
     case ReferenceObject::PatternType::CirclesGrid: {
-        return findCirclesGrid(image, boardSize, featurePoints);
+        // determine threshold value that partions image in 2 areas where their mean values have the
+        // same distance to the threshold value
+        double autoThresh = 127.5;
+        for (int i = 0; i < 4; ++i) {
+            Mat mask, invMask;
+            threshold(image, mask, autoThresh, 255, CV_THRESH_BINARY);
+            bitwise_not(mask, invMask);
+            double mean1 = mean(image, mask)[0];
+            double mean2 = mean(image, invMask)[0];
+            autoThresh = (mean1 + mean2) / 2;
+        }
+        SimpleBlobDetector::Params detectionParams;
+        detectionParams.minThreshold = static_cast<int>(autoThresh - 20);
+        detectionParams.maxThreshold = static_cast<int>(autoThresh + 20);
+        detectionParams.thresholdStep = 5;
+        Ptr<SimpleBlobDetector> detector = SimpleBlobDetector::create(detectionParams);
+        return findCirclesGrid(image, boardSize, featurePoints, CALIB_CB_SYMMETRIC_GRID, detector);
     }
     case ReferenceObject::PatternType::Invalid: {
         printErr << "No valid pattern type was specified" << endl;
@@ -269,7 +310,10 @@ ImagePointExtractor::determineFeatureImage(const Mat &image, Mat &featureImage) 
 
     if (m_applyThreshold) {
         cvtColor(featureImage, featureImage, CV_RGB2GRAY);
-        threshold(featureImage, featureImage, m_thresholdValue, 255.0, CV_THRESH_BINARY);
+        threshold(featureImage, featureImage, m_thresholdValue, 255.0, CV_THRESH_BINARY_INV);
+    } else {
+        cvtColor(featureImage, featureImage, CV_RGB2GRAY);
+        bitwise_not(featureImage, featureImage);
     }
 }
 

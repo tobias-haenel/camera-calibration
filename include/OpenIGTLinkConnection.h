@@ -1,11 +1,11 @@
 ﻿#pragma once
 
-#include <igtlSessionManager.h>
+#include <igtlMessageHandler.h>
+#include <igtlClientSocket.h>
 
 #include <set>
 #include <thread>
-
-#include "ThreadSafePrinter.h"
+#include <map>
 
 class OpenIGTLinkConnection {
 public:
@@ -18,6 +18,9 @@ public:
 
     bool
     open();
+
+    bool
+    isOpen();
 
     bool
     getBind(std::set<std::pair<std::string, std::string>> messageRequests,
@@ -100,11 +103,17 @@ private:
     disconnect();
 
 private:
-    igtl::SessionManager::Pointer m_sessionManager;
+    igtl::ClientSocket::Pointer m_clientSocket;
+
+    igtl::MessageHeader::Pointer m_messageHeader;
+
+    std::string m_hostName;
+
+    std::map<std::string, igtl::MessageHandler *> m_messageHandlers;
+
+    int m_port;
 
     std::thread m_receiveMessageThread;
 
     bool m_receivingMessages = false;
-
-    bool m_connected = false;
 };
