@@ -3,14 +3,18 @@
 #include <igtlMessageHandler.h>
 #include <igtlMessageHandlerMacro.h>
 #include <igtlTrackingDataMessage.h>
+#include <igtlStatusMessage.h>
 
+#include <condition_variable>
 #include <memory>
+
 #include <opencv2/core.hpp>
 
 #include "OpenIGTLinkConnection.h"
 #include "TrackingInformation.h"
 
 igtlMessageHandlerClassMacro(igtl::TrackingDataMessage, TrackingInformationUpdater, void);
+igtlMessageHandlerClassMacro(igtl::StatusMessage, StateUpdater, void);
 
 /**
  * @brief The ObjectLocater class can track various objects based on an OpenIGTLinkConnection to a
@@ -18,6 +22,7 @@ igtlMessageHandlerClassMacro(igtl::TrackingDataMessage, TrackingInformationUpdat
  */
 class ObjectLocater {
 public:
+
     /**
      * @brief Creates a new ObjectLocater.
      */
@@ -45,9 +50,17 @@ public:
     std::shared_ptr<TrackingInformation>
     trackingInformation() const;
 
+    /**
+     * @brief Opens the underlying OpenIGTLink connection.
+     * @return boolean, indicating success
+     */
     bool
     openConnection();
 
+    /**
+     * @brief Closes the underlying OpenIGTLink connection.
+     * @return boolean, indicating success
+     */
     bool
     closeConnection();
 
@@ -86,6 +99,11 @@ private: // members
      * @brief Processes TrackingDataMessages
      */
     TrackingInformationUpdater::Pointer m_trackingInformationUpdater;
+
+    /**
+     * @brief Processes StatusMessages
+     */
+    StateUpdater::Pointer m_stateUpdater;
 
     /**
      * @brief Tracking information that is contiously updated

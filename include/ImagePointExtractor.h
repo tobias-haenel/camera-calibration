@@ -7,9 +7,9 @@
 #include <mutex>
 #include <vector>
 
+#include "CameraInput.h"
 #include "IntrinsicCameraParameters.h"
 #include "ReferenceObject.h"
-#include "CameraInput.h"
 
 /**
  * @brief The ImagePointExtractor class can find image points on a reference object that are need
@@ -43,11 +43,11 @@ public:
      * @return boolean indicating success
      */
     bool
-    findImagePoints(std::vector<std::vector<cv::Point2f>> &imagePoints,
-                    cv::Size &imageSize,
-                    int &focusValue,
-                    ReferenceObject const &referenceObject,
-                    CameraInput &input) const;
+    findReferenceObjectImagePoints(std::vector<std::vector<cv::Point2f>> &imagePoints,
+                                   cv::Size &imageSize,
+                                   int &focusValue,
+                                   ReferenceObject const &referenceObject,
+                                   CameraInput &input) const;
 
     void
     showUndistoredInput(IntrinsicCameraParameters const &result, CameraInput &input);
@@ -128,16 +128,6 @@ private: // members
      * @brief Indicates if the settings of this ReferenceObject are valid
      */
     bool m_settingsValid = false;
-
-    /**
-     * @brief Indicates if the input should be thresholded after a conversion to grayscale
-     */
-    bool m_applyThreshold = false;
-
-    /**
-     * @brief Value that should be used for thresholding
-     */
-    double m_thresholdValue = 0.0;
 
     /**
      * @brief Time (in s) that is required until a still reference object is treated as not moving

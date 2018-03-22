@@ -17,7 +17,25 @@ TrackingInformationUpdater::Process(TrackingDataMessage *message, void *data) {
     return 1;
 }
 
-ObjectLocater::ObjectLocater() : m_trackingInformationUpdater{TrackingInformationUpdater::New()} {}
+int
+StateUpdater::Process(StatusMessage *message, void *data) {
+    TrackingInformation *trackingInformation = static_cast<TrackingInformation *>(data);
+    if (trackingInformation == nullptr) {
+        return 0;
+    }
+
+    TrackingInformation::ConnectionState state =
+        (message->GetCode() == 1 ? TrackingInformation::ConnectionState::Active
+                                 : TrackingInformation::ConnectionState::Inactive);
+
+    trackingInformation->setConnectionState(state);
+
+    return 1;
+}
+
+ObjectLocater::ObjectLocater()
+    : m_trackingInformationUpdater{TrackingInformationUpdater::New()},
+      m_stateUpdater{StateUpdater::New()} {}
 
 bool
 ObjectLocater::readSettings(const FileNode &node) {
@@ -33,8 +51,10 @@ ObjectLocater::readSettings(const FileNode &node) {
         m_trackingInformation =
             make_shared<TrackingInformation>(m_pointerDeviceName, m_referenceElementDeviceName);
         m_trackingInformationUpdater->SetData(m_trackingInformation.get());
+        m_stateUpdater->SetData(m_trackingInformation.get());
         m_trackingConnection = make_shared<OpenIGTLinkConnection>(m_hostName, m_port);
         m_trackingConnection->addMessageHandler(m_trackingInformationUpdater);
+        m_trackingConnection->addMessageHandler(m_stateUpdater);
     }
 
     return m_settingsValid;
@@ -52,16 +72,18 @@ ObjectLocater::trackingInformation() const {
 
 bool
 ObjectLocater::openConnection() {
+    m_trackingInformation->setConnectionState(TrackingInformation::ConnectionState::Init);
     return m_trackingConnection->open();
 }
 
 bool
 ObjectLocater::closeConnection() {
+    m_trackingInformation->setConnectionState(TrackingInformation::ConnectionState::Inactive);
     if (m_trackingConnection == nullptr or not m_trackingConnection->isOpen()) {
         return false;
     }
     m_trackingConnection->close();
-    return  true;
+    return true;
 }
 
 bool

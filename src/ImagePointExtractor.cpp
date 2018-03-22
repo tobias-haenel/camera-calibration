@@ -20,8 +20,6 @@ using namespace std::chrono;
 bool
 ImagePointExtractor::readSettings(const FileNode &node) {
     int stillDelayMs, cooldownDurationMs;
-    node["ApplyThreshold"] >> m_applyThreshold;
-    node["ThresholdValue"] >> m_thresholdValue;
     node["StillDelay"] >> stillDelayMs;
     node["CooldownDuration"] >> cooldownDurationMs;
     node["GridWidth"] >> m_gridSize.width;
@@ -41,11 +39,11 @@ ImagePointExtractor::settingsValid() const {
 }
 
 bool
-ImagePointExtractor::findImagePoints(vector<vector<Point2f>> &imagePoints,
-                                     Size &imageSize,
-                                     int &focusValue,
-                                     const ReferenceObject &referenceObject,
-                                     CameraInput &input) const {
+ImagePointExtractor::findReferenceObjectImagePoints(vector<vector<Point2f>> &imagePoints,
+                                                    Size &imageSize,
+                                                    int &focusValue,
+                                                    const ReferenceObject &referenceObject,
+                                                    CameraInput &input) const {
     Data data;
     data.referenceObject = referenceObject;
     data.imageCountGrid.resize(static_cast<size_t>(m_gridSize.width));
@@ -227,17 +225,23 @@ ImagePointExtractor::addImagePoints(std::vector<std::vector<Point2f>> &imagePoin
     }
 
     {
-        size_t i = 0;
-        ThreadSafePrinter print{cout};
-        print << "Added image points: " << endl;
-        for (int y = 0; y < data.referenceObject.boardSize().height; ++y) {
-            print << "  ";
-            for (int x = 0; x < data.referenceObject.boardSize().width; ++x, ++i) {
-                Point2f p = currentImagePoints.at(i);
-                print << (x != 0 ? " " : "") << '(' << p.x << ", " << p.y << ')';
-            }
-            print << endl;
+        size_t index = imagePoints.size() + 1;
+        FileStorage file{"image-points-" + to_string(index) +".xml", FileStorage::WRITE};
+        file << "ImagePointCount" << static_cast<int>(currentImagePoints.size());
+        for (size_t i = 0; i < currentImagePoints.size(); ++i) {
+            file << "ImagePoint" + to_string(i) << currentImagePoints.at(i);
         }
+//        size_t i = 0;
+//        ThreadSafePrinter print{cout};
+//        print << "Added image points: " << endl;
+//        for (int y = 0; y < data.referenceObject.boardSize().height; ++y) {
+//            print << "  ";
+//            for (int x = 0; x < data.referenceObject.boardSize().width; ++x, ++i) {
+//                Point2f p = currentImagePoints.at(i);
+//                print << (x != 0 ? " " : "") << '(' << p.x << ", " << p.y << ')';
+//            }
+//            print << endl;
+//        }
     }
     imagePoints.push_back(currentImagePoints);
     data.imageShapes.push_back(currentShape);
@@ -308,13 +312,8 @@ void
 ImagePointExtractor::determineFeatureImage(const Mat &image, Mat &featureImage) const {
     featureImage = image.clone();
 
-    if (m_applyThreshold) {
-        cvtColor(featureImage, featureImage, CV_RGB2GRAY);
-        threshold(featureImage, featureImage, m_thresholdValue, 255.0, CV_THRESH_BINARY_INV);
-    } else {
-        cvtColor(featureImage, featureImage, CV_RGB2GRAY);
-        bitwise_not(featureImage, featureImage);
-    }
+    cvtColor(featureImage, featureImage, CV_RGB2GRAY);
+    bitwise_not(featureImage, featureImage);
 }
 
 void
@@ -338,11 +337,6 @@ ImagePointExtractor::validateSettings() {
 
     if (m_detectionsPerGridCell <= 0) {
         printErr << "Invalid number of images per grid" << endl;
-        m_settingsValid = false;
-    }
-
-    if (m_thresholdValue < 0.0) {
-        printErr << "Invalid threshold value" << endl;
         m_settingsValid = false;
     }
 }

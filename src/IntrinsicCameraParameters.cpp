@@ -9,7 +9,7 @@ write(FileStorage &fs, const string &, const IntrinsicCameraParameters &intrinsi
        << "CameraMatrix" << intrinsicCameraParameters.cameraMatrix                               //
        << "DistortionCoeffiecients" << intrinsicCameraParameters.distortionCoefficients          //
        << "StandardDeviationIntrinsics" << intrinsicCameraParameters.standardDeviationIntrinsics //
-       << "PerViewErros" << intrinsicCameraParameters.perViewErrors                              //
+       << "PerViewErrors" << intrinsicCameraParameters.perViewErrors                             //
        << "FocusValue" << intrinsicCameraParameters.focusValue                                   //
        << "}";
 }

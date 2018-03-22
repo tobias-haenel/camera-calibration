@@ -10,6 +10,21 @@ TrackingInformation::TrackingInformation(const string &pointerDeviceName,
     : m_pointerDeviceName{pointerDeviceName},
       m_referenceElementDeviceName{referenceElementDeviceName} {}
 
+bool
+TrackingInformation::waitForInitialisiation() {
+    unique_lock<mutex> lock{m_connectionStateMutex};
+    if (m_connectionState != ConnectionState::Init) {
+        return true;
+    }
+    return m_newConnectionStateCondition.wait_for(lock, 120s) != cv_status::timeout;
+}
+
+TrackingInformation::ConnectionState
+TrackingInformation::connectionState() {
+    unique_lock<mutex> lock{m_connectionStateMutex};
+    return m_connectionState;
+}
+
 void
 TrackingInformation::updateFromMessage(TrackingDataMessage *trackingDataMessage) {
     if (trackingDataMessage == nullptr) {
@@ -39,7 +54,7 @@ TrackingInformation::updateFromMessage(TrackingDataMessage *trackingDataMessage)
             trackingDataElement->GetMatrix(transformation);
             {
                 lock_guard<mutex> lock{m_referenceMutex};
-                m_referenceTransformation = Mat(4, 4, CV_64F);
+                m_referenceTransformation = Mat::eye(4, 4, CV_64F);
                 for (int row = 0; row < 4; ++row) {
                     for (int col = 0; col < 4; ++col) {
                         m_referenceTransformation.at<double>(row, col) = transformation[row][col];
@@ -52,7 +67,7 @@ TrackingInformation::updateFromMessage(TrackingDataMessage *trackingDataMessage)
 }
 
 void
-TrackingInformation::pointer(Vec3f& position, double &timeStamp) {
+TrackingInformation::pointer(Vec3f &position, double &timeStamp) {
     lock_guard<mutex> lock{m_pointerMutex};
     position = m_pointerPosition;
     timeStamp = m_pointerTimeStamp;
@@ -61,6 +76,13 @@ TrackingInformation::pointer(Vec3f& position, double &timeStamp) {
 void
 TrackingInformation::referenceElement(Mat &transformation, double &timeStamp) {
     lock_guard<mutex> lock{m_referenceMutex};
-    transformation = m_referenceTransformation;
+    transformation = m_referenceTransformation.clone();
     timeStamp = m_referenceTimeStamp;
+}
+
+void
+TrackingInformation::setConnectionState(TrackingInformation::ConnectionState newState) {
+    unique_lock<mutex> lock{m_connectionStateMutex};
+    m_connectionState = newState;
+    m_newConnectionStateCondition.notify_all();
 }

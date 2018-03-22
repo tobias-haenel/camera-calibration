@@ -42,17 +42,12 @@ CameraInput::~CameraInput() {
 
 bool
 CameraInput::readSettings(const FileNode &node) {
-    bool flipHorizontal, flipVertical;
     node["HostName"] >> m_hostName;
     node["Port"] >> m_port;
-    node["FlipHorizontal"] >> flipHorizontal;
-    node["FlipVertical"] >> flipVertical;
 
     validateSettings();
 
     if (m_settingsValid) {
-        m_cameraImage->setFlipHorizontal(flipHorizontal);
-        m_cameraImage->setFlipVertical(flipVertical);
         m_imagingConnection = make_shared<OpenIGTLinkConnection>(m_hostName, m_port);
         m_imagingConnection->addMessageHandler(m_imageUpdater);
         m_imagingConnection->addMessageHandler(m_imageWithFocusUpdater);

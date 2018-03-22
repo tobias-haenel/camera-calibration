@@ -1,0 +1,109 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<opencv_storage>
+    <!-- describes the settings for the video input of the camera -->
+    <CameraInput>
+        <!-- Host name of the imaging server -->
+        <HostName>"192.168.0.1"</HostName>
+        <!-- Port of the imaging server -->
+        <Port>22221</Port>
+    </CameraInput>
+    <!-- Describes the reference object that is used to obtain the required point correspondences -->
+    <ReferenceObject>
+        <!-- Number of item columns (square, circle) -->
+        <BoardSizeWidth>7</BoardSizeWidth>
+        <!-- Number of item rows (square, circle) -->
+        <BoardSizeHeight>6</BoardSizeHeight>
+        <!-- Size of a pattern cell (in mm) -->
+        <SquareSize>10</SquareSize>
+        <!-- Input type used for camera calibration (Chessboard/CirclesGrid/AsymmetricCirclesGrid) -->
+        <CalibrationPattern>"CirclesGrid"</CalibrationPattern>
+    </ReferenceObject>
+    <!-- Describes the settings for the camera calibration process -->
+    <CameraCalibration>
+        <!-- Describes how the image points that correspond to reference object points are extracted -->
+        <ImagePointExtraction>
+            <!-- Time (in ms) that is required until a still reference object is treated as not moving -->
+            <StillDelay>2000</StillDelay>
+
+            <!-- Time (in ms) that is requiered until the input images are considered again after a set of image points was successfully added -->
+            <CooldownDuration>4000</CooldownDuration>
+
+            <!-- Number of columns of the grid that has to be covered with image points of the reference object -->
+            <GridWidth>2</GridWidth>
+
+            <!-- Number of rows of the grid that has to be covered with image points of the reference object -->
+            <GridHeight>2</GridHeight>
+
+            <!-- Amount of image point sets of the reference object that is required for each grid cell -->
+            <ImagesPerGridCell>3</ImagesPerGridCell>
+        </ImagePointExtraction>
+        <!-- Aspect ratio that should be assumed for the camera matrix, 0.0 means the aspect ratio will be calculated -->
+        <AspectRatio>1.0</AspectRatio>
+        <!-- If true (non-zero) the principal point is fixed at the centre of the image plane andnot changed during the global optimization -->
+        <FixPrincipalPointAtTheCenter>0</FixPrincipalPointAtTheCenter>
+        <!-- If true (non-zero) distortion coefficient k1 is fixed to zero.-->
+        <FixK1>0</FixK1>
+        <!-- If true (non-zero) distortion coefficient k2 is fixed to zero.-->
+        <FixK2>0</FixK2>
+        <!-- If true (non-zero) distortion coefficient k3 is fixed to zero.-->
+        <FixK3>0</FixK3>
+        <!-- If true (non-zero) distortion coefficient k4 is fixed to zero.-->
+        <FixK4>0</FixK4>
+        <!-- If true (non-zero) distortion coefficient k5 is fixed to zero.-->
+        <FixK5>0</FixK5>
+        <!-- If true (non-zero) distortion coefficient k6 is fixed to zero.-->
+        <FixK6>0</FixK6>
+        <!-- If true (non-zero) tangential distortion coefficients is fixed to zero -->
+        <AssumeZeroTangentialDistortion>0</AssumeZeroTangentialDistortion>
+    </CameraCalibration>
+    <!-- Describes the settings of the process that determines the static transformation from the camera to the reference adapter -->
+    <TransformationDetermination>
+        <!-- Describes the settings of the process that determines the coordinates in the patient coordinate system -->
+        <ObjectLocating>
+            <!-- Host name of the tracking server -->
+            <HostName>"192.168.0.2"</HostName>
+            <!-- Port of the tracking server -->
+            <Port>22222</Port>
+            <!-- Update interval that is used to obtain new tracking information (in ms)  -->
+            <UpdateInterval>500</UpdateInterval>
+            <!-- Name of the device that acts as the pointer (in TDATA messages) -->
+            <PointerDeviceName>"Pointer"</PointerDeviceName>
+            <!-- Name of the device that acts as the reference adapter (in TDATA messages) -->
+            <ReferenceElementDeviceName>"Ultrasound"</ReferenceElementDeviceName>
+        </ObjectLocating>
+        <ImagePointExtraction>
+            <!-- Time (in ms) that is required until a still reference object is treated as not moving -->
+            <StillDelay>3000</StillDelay>
+
+            <!-- Time (in ms) that is requiered until the input images are considered again after a set of image points was successfully added -->
+            <CooldownDuration>4000</CooldownDuration>
+
+            <!-- Number of columns of the grid that has to be covered with image points of the reference object -->
+            <GridWidth>1</GridWidth>
+
+            <!-- Number of rows of the grid that has to be covered with image points of the reference object -->
+            <GridHeight>1</GridHeight>
+
+            <!-- Amount of image point sets of the reference object that is required for each grid cell -->
+            <ImagesPerGridCell>1</ImagesPerGridCell>
+        </ImagePointExtraction>
+        <!-- Pose estimation algorithm that is used (Iterative/P3P/AP3P/EPNP/DLS/UPNP) -->
+        <PoseEstimationMethod>"Iterative"</PoseEstimationMethod>
+        <!-- Amount of colums that are covered by the vector from the instrument point TL to the instrument point TR -->
+        <XVectorScale>7</XVectorScale>
+        <!-- Amount of rows that are covered by the y vector from the instrument point TL to the instrument point BL -->
+        <YVectorScale>6</YVectorScale>
+        <!-- Horizontal offset of the instrument point TL from the top left pattern point -->
+        <PatternOriginXOffset>1</PatternOriginXOffset>
+        <!-- Vertical offset of the instrument point TL from the top left pattern point -->
+        <PatternOriginYOffset>1</PatternOriginYOffset>
+        <!-- Cooldown duration until a new instrument point is determined -->
+        <CooldownDuration>5</CooldownDuration>
+        <!-- Duration that the instrument adapter needs to be still -->
+        <StillDelay>10</StillDelay>
+        <!-- Minimum amount of positions that should be obtained from the tracking server-->
+        <MinimalPositionCount>10</MinimalPositionCount>
+        <!-- Maximum distance of position shift that is allowed (in mm) -->
+        <MoveDistance>2</MoveDistance>
+    </TransformationDetermination>
+</opencv_storage>

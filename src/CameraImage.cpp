@@ -84,7 +84,6 @@ CameraImage::updateFromMessage(ImageWithFocusMessage *message) {
     duration<double> timeSinceEpoch = high_resolution_clock::now().time_since_epoch();
     double currentTime = timeSinceEpoch.count();
     Mat messageImage = getImage(message);
-    transformImage(messageImage);
     int focusValue = message->GetFocusValue();
 
     lock_guard<mutex> lock{m_mutex};
@@ -103,7 +102,6 @@ CameraImage::updateFromMessage(ImageMessage *message) {
     duration<double> timeSinceEpoch = high_resolution_clock::now().time_since_epoch();
     double currentTime = timeSinceEpoch.count();
     Mat messageImage = getImage(message);
-    transformImage(messageImage);
 
     lock_guard<mutex> lock{m_mutex};
     m_image = messageImage.clone();
@@ -123,25 +121,4 @@ bool
 CameraImage::waitForNewImage() {
     unique_lock<mutex> lock{m_mutex};
     return m_newPictureCondition.wait_for(lock, 5s) != cv_status::timeout;
-}
-
-void
-CameraImage::setFlipHorizontal(bool flipHorizontal) {
-    m_flipHorizontal = flipHorizontal;
-}
-
-void
-CameraImage::setFlipVertical(bool flipVertical) {
-    m_flipVertical = flipVertical;
-}
-
-void
-CameraImage::transformImage(Mat &image) {
-    if (m_flipHorizontal) {
-        flip(image, image, 0);
-    }
-
-    if (m_flipVertical) {
-        flip(image, image, 1);
-    }
 }

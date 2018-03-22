@@ -67,23 +67,17 @@ CameraCalibration::calibrate(IntrinsicCameraParameters &result,
     vector<vector<Point3f>> objectPoints;
     Size imageSize;
 
-    if (not m_imagePointExtractor.findImagePoints(
+    if (not m_imagePointExtractor.findReferenceObjectImagePoints(
             imagePoints, imageSize, result.focusValue, referenceObject, input)) {
         return false;
     }
 
     referenceObject.objectPoints(objectPointsOnce);
     {
-        size_t i = 0;
-        ThreadSafePrinter print {cout};
-        print << "Calculated object points: " << endl;
-        for (int y = 0; y < referenceObject.boardSize().height; ++y) {
-            print << "  ";
-            for (int x = 0; x < referenceObject.boardSize().width; ++x, ++i) {
-                Point3f p = objectPointsOnce.at(i);
-                print << (x != 0 ? " " : "") << '(' << p.x << ", " << p.y << ", " << p.z << ')';
-            }
-            print << endl;
+        FileStorage file{"object-points.xml", FileStorage::WRITE};
+        file << "ObjectPointCount" << static_cast<int>(objectPointsOnce.size());
+        for (size_t i = 0; i < objectPointsOnce.size(); ++i) {
+            file << "ObjectPoint" + to_string(i) << objectPointsOnce.at(i);
         }
     }
     objectPoints.resize(imagePoints.size(), objectPointsOnce);
@@ -102,9 +96,9 @@ CameraCalibration::calculateResult(const std::vector<std::vector<Point2f>> &imag
                                    const std::vector<std::vector<Point3f>> &objectPoints,
                                    const Size &imageSize,
                                    IntrinsicCameraParameters &result) {
-    double sensorWidth = 16; // mm
+    double sensorWidth = 16;  // mm
     double sensorHeight = 12; // mm
-    double focalLength = 60; //m
+    double focalLength = 60;  // mm
 
     result.cameraMatrix = Mat::eye(3, 3, CV_64F);
     if (m_flag & CALIB_FIX_ASPECT_RATIO)
@@ -139,10 +133,9 @@ CameraCalibration::calculateResult(const std::vector<std::vector<Point2f>> &imag
         return false;
     }
 
-    printOut << "Re-projection error reported by calibrateCamera: " << rms << endl;
-
     double fovx, fovy, aspectRatio;
     Point2d principalPoint;
+    double estimatedFocalLength;
 
     calibrationMatrixValues(result.cameraMatrix,
                             imageSize,
@@ -150,15 +143,16 @@ CameraCalibration::calculateResult(const std::vector<std::vector<Point2f>> &imag
                             sensorHeight,
                             fovx,
                             fovy,
-                            focalLength,
+                            estimatedFocalLength,
                             principalPoint,
                             aspectRatio);
 
-    printOut << "Horizontal FOV: " << fovx << endl <<\
-                "Vertical FOV: " << fovy << endl <<\
-                "Focal length: " << focalLength << endl <<\
-                "Aspect Ratio: " << aspectRatio << endl <<\
-                "Prinicpial Point: " << principalPoint << endl;
+    ThreadSafePrinter printer{cout};
+    printer.precision(10);
+    printer << scientific << "Focal length (mm): " << estimatedFocalLength << endl
+            << "Focal point x (px): " << result.cameraMatrix.at<double>(0, 2) << endl
+            << "Focal point y (px): " << result.cameraMatrix.at<double>(1, 2) << endl
+            << "Reprojection error(px): " << rms << endl;
 
     return true;
 }

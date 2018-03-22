@@ -34,14 +34,31 @@ public:
      * @param intrinsicCameraParameters Intrinsic parameters of the camera
      * @param patternObject Pattern that is used to determine image points
      * @param input CameraInput that is used to obtain images
-     * @param referenceToCameraTransformation Result transformation
+     * @param referenceToCameraTransform Result transformation
+     * @param cameraToReferenceTransform Inverted result transformation
+     * @param cameraToReferenceTran
      * @return boolean indicating success
      */
     bool
     determineConversionTransformation(IntrinsicCameraParameters const &intrinsicCameraParameters,
                                       ReferenceObject const &patternObject,
                                       CameraInput &input,
-                                      cv::Mat &referenceToCameraTransformation);
+                                      cv::Mat &referenceToCameraTransform,
+                                      cv::Mat &cameraToReferenceTransform);
+
+    /**
+     * @brief Performs a calculation of a reprojection error from known object points. Image points
+     * are determined semi-automatically.
+     * @param intrinsicCameraParameters Intrinsic parameters of the camera
+     * @param referenceToCameraTransform Transform from the reference element to the camera
+     * @param objectPoints Object points that are evaluated
+     * @param input Camera input
+     */
+    void
+    checkReprojectionError(IntrinsicCameraParameters const &intrinsicCameraParameters,
+                           cv::Mat const &referenceToCameraTransform,
+                           std::vector<cv::Point3f> objectPoints,
+                           CameraInput &input);
 
 private: // methods
     /**
@@ -68,16 +85,27 @@ private: // methods
                                   std::vector<cv::Point2f> &reprojectedImagePoints,
                                   cv::Mat &cameraTransformation);
 
+    /**
+     * @brief Locates an object point with the pointer tip.
+     * @param pointName Name of the point
+     * @param trackingInformation Tracking information
+     * @param cameraImage Camera input
+     * @param objectPoint Output object point
+     */
     void
     locateObjectPoint(std::string const &pointName,
                       std::shared_ptr<TrackingInformation> trackingInformation,
                       std::shared_ptr<CameraImage> cameraImage,
                       cv::Vec3f &objectPoint);
 
+    /**
+     * @brief Locates a reference element.
+     * @param trackingInformation Tracking information
+     * @param referenceToAnatomyTransform Output transformation from reference element to anatomy
+     */
     void
     locateReferenceElement(std::shared_ptr<TrackingInformation> trackingInformation,
-                           cv::Mat &trackerToReferenceTransform,
-                           cv::Mat &referencePosition);
+                           cv::Mat &referenceToAnatomyTransform);
 
 private: // members
     /**

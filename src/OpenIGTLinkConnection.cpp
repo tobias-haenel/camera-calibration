@@ -61,19 +61,6 @@ OpenIGTLinkConnection::isOpen() {
 }
 
 bool
-OpenIGTLinkConnection::getBind(set<pair<string, string>> messageRequests, const string &device) {
-    MessageBase::Pointer message;
-    auto getNindMessage = GetBindMessage::New();
-    for (auto const &messageRequest : messageRequests) {
-        std::string const &device = messageRequest.first;
-        std::string const &messageType = messageRequest.second;
-        getNindMessage->AppendChildMessage(messageType.c_str(), device.c_str());
-    }
-    message = getNindMessage;
-    return sendMessage(message, device);
-}
-
-bool
 OpenIGTLinkConnection::getCapability(const string &device) {
     MessageBase::Pointer message;
     message = GetCapabilityMessage::New();
@@ -140,31 +127,6 @@ bool
 OpenIGTLinkConnection::getTransform(const string &device) {
     MessageBase::Pointer message;
     message = GetTransformMessage::New();
-    return sendMessage(message, device);
-}
-
-bool
-OpenIGTLinkConnection::startRequestingBind(std::set<std::pair<string, string>> messageRequests,
-                                           double resolution,
-                                           const string &device) {
-    MessageBase::Pointer message;
-    auto startBindMessage = StartBindMessage::New();
-    for (auto const &messageRequest : messageRequests) {
-        std::string const &device = messageRequest.first;
-        std::string const &messageType = messageRequest.second;
-        startBindMessage->AppendChildMessage(messageType.c_str(), device.c_str());
-    }
-    auto resolutionTimeStamp = TimeStamp::New();
-    resolutionTimeStamp->SetTime(resolution);
-    startBindMessage->SetResolution(resolutionTimeStamp->GetTimeStampUint64());
-    message = startBindMessage;
-    return sendMessage(message, device);
-}
-
-bool
-OpenIGTLinkConnection::stopRequestingBind(const string &device) {
-    MessageBase::Pointer message;
-    message = StopBindMessage::New();
     return sendMessage(message, device);
 }
 

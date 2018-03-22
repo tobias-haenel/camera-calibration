@@ -3,6 +3,14 @@
 #include "igtl_myImage.h"
 
 namespace igtl {
+void ImageWithFocusMessage::SetFocusValue(const int f) {
+    m_FocusValue = f;
+}
+
+int ImageWithFocusMessage::GetFocusValue() {
+    return m_FocusValue;
+}
+
 ImageWithFocusMessage::ImageWithFocusMessage() : ImageMessage() {
     m_DefaultBodyType = "MYIMAGE";
 }
